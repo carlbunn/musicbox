@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Configuration
-REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git"
+REPO_URL="https://github.com/carlbunn/musicbox.git"
 SERVICE_USER="musicbox"
 SERVICE_GROUP="musicbox"
 INSTALL_DIR="/opt/musicbox"
