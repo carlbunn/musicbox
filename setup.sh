@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Configuration
-REPO_URL="https://github.com/carlbunn/musicbox.git"
+REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git"
 SERVICE_USER="musicbox"
 SERVICE_GROUP="musicbox"
 INSTALL_DIR="/opt/musicbox"
@@ -111,13 +111,6 @@ print_status "Log directory setup"
 echo "Configuring log rotation..."
 setup_logrotate
 
-# Stop existing service if running
-if systemctl is-active --quiet musicbox.service; then
-    echo "Stopping existing MusicBox service..."
-    sudo systemctl stop musicbox.service
-    print_status "Service stop"
-fi
-
 # Enable SPI interface
 echo "Checking SPI configuration..."
 if ! grep -q "^dtparam=spi=on" /boot/config.txt; then
@@ -130,15 +123,38 @@ else
     echo -e "${GREEN}SPI already enabled${NC}"
 fi
 
-# Install required packages
-echo "Installing system dependencies..."
-sudo apt-get update
-if ! dpkg -l | grep -qw python3-pip; then
-    sudo apt-get install -y git python3-pip python3-venv vlc logrotate
-    print_status "System packages"
-else
-    echo -e "${YELLOW}System packages already installed${NC}"
+# Stop existing service if running
+if systemctl is-active --quiet musicbox.service; then
+    echo "Stopping existing MusicBox service..."
+    systemctl stop musicbox.service
+    print_status "Service stop"
 fi
+
+# Install required packages
+echo "Installing system packages..."
+apt-get update
+apt-get install -y \
+    git \
+    vlc \
+    logrotate \
+    python3-vlc \
+    python3-rpi.gpio \
+    python3-pip \
+    python3-venv
+print_status "System packages"
+
+# Create a virtual environment for our Python packages
+echo "Setting up Python environment..."
+mkdir -p "$INSTALL_DIR"
+chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+su - "$SERVICE_USER" -s /bin/bash -c "python3 -m venv $INSTALL_DIR/venv"
+print_status "Virtual environment setup"
+
+# Install project Python packages in the virtual environment
+echo "Installing project dependencies..."
+su - "$SERVICE_USER" -s /bin/bash -c "source $INSTALL_DIR/venv/bin/activate && cd $INSTALL_DIR && $INSTALL_DIR/venv/bin/pip install -r requirements.txt"
+print_status "Python packages"
 
 # Handle existing installation
 if [ -d "$INSTALL_DIR" ]; then
@@ -148,9 +164,9 @@ if [ -d "$INSTALL_DIR" ]; then
     # Check if it's a git repository
     if [ -d ".git" ]; then
         echo "Updating existing repository..."
-        sudo -u "$SERVICE_USER" git fetch
+        git fetch
         if [ "$(git rev-parse HEAD)" != "$(git rev-parse @{u})" ]; then
-            sudo -u "$SERVICE_USER" git pull
+            git pull
             needs_restart=true
             print_status "Repository update"
         else
@@ -164,7 +180,7 @@ if [ -d "$INSTALL_DIR" ]; then
         rm -rf "$INSTALL_DIR"
         mkdir -p "$INSTALL_DIR"
         cd "$INSTALL_DIR"
-        sudo -u "$SERVICE_USER" git clone "$REPO_URL" .
+        git clone "$REPO_URL" .
         print_status "Repository clone"
         
         echo "Restoring music directory..."
@@ -178,26 +194,10 @@ else
     echo "Creating installation directory..."
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
-    sudo -u "$SERVICE_USER" git clone "$REPO_URL" .
+    git clone "$REPO_URL" .
     print_status "Repository clone"
     needs_restart=true
 fi
-
-# Set up virtual environment if needed
-if [ ! -d "venv" ]; then
-    echo "Setting up Python virtual environment..."
-    sudo -u "$SERVICE_USER" python3 -m venv venv
-    print_status "Virtual environment"
-    needs_restart=true
-else
-    echo -e "${YELLOW}Virtual environment already exists${NC}"
-fi
-
-# Activate virtual environment and update requirements
-source venv/bin/activate
-echo "Updating Python requirements..."
-sudo -u "$SERVICE_USER" pip install -r requirements.txt
-print_status "Python packages"
 
 # Create necessary directories with appropriate permissions
 echo "Creating project directories..."
@@ -225,7 +225,7 @@ print_status "Permissions"
 
 # Update systemd service
 echo "Updating systemd service..."
-sudo bash -c "cat > /etc/systemd/system/musicbox.service" << EOL
+cat > /etc/systemd/system/musicbox.service << EOL
 [Unit]
 Description=MusicBox Service
 After=network.target
@@ -234,7 +234,7 @@ After=network.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
-ExecStart=$INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/src/main.py
+ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/src/main.py
 WorkingDirectory=$INSTALL_DIR
 StandardOutput=append:$LOG_DIR/musicbox.log
 StandardError=append:$LOG_DIR/musicbox.log
@@ -260,17 +260,17 @@ EOL
 print_status "Service configuration"
 
 # Reload systemd if service file changed
-sudo systemctl daemon-reload
+systemctl daemon-reload
 
 # Enable and restart service if needed
-sudo systemctl enable musicbox.service
+systemctl enable musicbox.service
 if [ "$needs_restart" = true ]; then
     echo "Restarting MusicBox service..."
-    sudo systemctl restart musicbox.service
+    systemctl restart musicbox.service
     print_status "Service restart"
 else
     echo "Starting MusicBox service..."
-    sudo systemctl start musicbox.service
+    systemctl start musicbox.service
     print_status "Service start"
 fi
 
