@@ -3,3 +3,5 @@ mfrc522==0.0.7
 RPi.GPIO==0.7.1; platform_machine=='armv7l' or platform_machine=='aarch64'  # Only install on Raspberry Pi
 pathlib==1.0.1
 typing==3.7.4.3
+flask==2.0.1
+requests>=2.25.1

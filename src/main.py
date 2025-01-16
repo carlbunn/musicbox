@@ -5,19 +5,19 @@ import os
 # Add the project root directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.mock_rfid_reader import MockRFIDReader
-from src.core.rc522_reader import RC522Reader
 from src.core.audio_player import AudioPlayer
 from src.core.file_manager import FileManager
 from src.core.learning_mode import LearningMode
 from src.core.mapping_manager import MappingManager
 from src.config.settings import Settings
+from src.api.server import APIServer
 from src.utils.logger import get_logger
 import time
 from pathlib import Path
 from typing import Dict
 
 logger = get_logger(__name__)
+logger.info("Main module loading...")
 
 class MusicBox:
     def __init__(self):
@@ -26,8 +26,12 @@ class MusicBox:
         
         # Use RC522Reader on Pi, MockRFIDReader for development
         if self._is_running_on_pi():
+            logger.info("Running an rfc522 rfid reader...")
+            from src.core.rc522_reader import RC522Reader
             self.rfid_reader = RC522Reader()
         else:
+            logger.info("Running a mock rfid reader...")
+            from src.core.mock_rfid_reader import MockRFIDReader
             self.rfid_reader = MockRFIDReader()
         
         self.mapping_manager = MappingManager()
@@ -35,6 +39,9 @@ class MusicBox:
         # Initialize file manager with music directory
         music_dir = self.settings.get('music_directory', 'music')
         self.file_manager = FileManager(music_dir)
+
+        # Initialize API server
+        self.api_server = APIServer(self)
         
         logger.info("MusicBox initialized")
 
@@ -64,32 +71,29 @@ class MusicBox:
     def handle_tag(self, tag_id: str) -> bool:
         """Handle a scanned RFID tag."""
         try:
-            # Get the mapped music file
             music_file = self.mapping_manager.get_music_file(tag_id)
             
-            if music_file:
-                logger.info(f"Playing music for tag {tag_id}: {music_file}")
-                if self.audio_player.play(str(music_file)):
-                    # Get and log the track info
-                    info = self.audio_player.get_display_info()
-                    logger.info(f"Now playing: {info['title']} by {info['artist']}")
-                    return True
-                else:
-                    logger.error(f"Failed to play file: {music_file}")
+            if not music_file:
+                logger.info(f"No mapping found for tag: {tag_id}")
+                return False
+                
+            logger.info(f"Found mapping for {tag_id}: {music_file}")
+            if self.audio_player.play(str(music_file)):
+                info = self.audio_player.get_display_info()
+                logger.info(f"Playing: {info['title']} by {info['artist']}")
+                return True
             else:
-                logger.warning(f"No music mapped for tag: {tag_id}")
-            
-            return False
+                logger.error(f"Failed to play file: {music_file}")
+                return False
             
         except Exception as e:
             logger.error(f"Error handling tag {tag_id}: {str(e)}")
             return False
-        
-    # Add to src/main.py in the MusicBox class:
+
     def handle_learning_mode(self) -> None:
         """Handle learning mode in the main loop."""
         self.learning_mode = LearningMode(self.mapping_manager, self.audio_player)
-        
+
         try:
             if self.learning_mode.enter_mode():
                 logger.info("Learning mode activated. Controls:")
@@ -127,48 +131,43 @@ class MusicBox:
             if not self.rfid_reader.initialize():
                 logger.error("Failed to initialize RFID reader")
                 return
+            
+            self.api_server.start()
+            logger.info("API server started")
 
             # Validate mappings before starting
             issues = self.mapping_manager.validate_mappings()
             if any(issues.values()):
-                logger.warning("Mapping issues found:")
+                logger.warning("Mapping validation found issues:")
                 for category, items in issues.items():
                     if items:
                         logger.warning(f"{category}: {items}")
 
-            logger.info("Starting main loop")
-            logger.info("Controls:")
-            logger.info("  1-4: Play mapped songs")
-            logger.info("  L: Enter learning mode")
-            logger.info("  Q: Quit")
-            
-            logger.info("\nAvailable mappings:")
-            for tag in ['MOCK_TAG_1', 'MOCK_TAG_2', 'MOCK_TAG_3', 'MOCK_TAG_4']:
-                music_file = self.mapping_manager.get_music_file(tag)
-                if music_file:
-                    logger.info(f"Key {tag[-1]}: {music_file.name}")
+            logger.info("Starting main loop - waiting for cards...")
+
+            # Show some additional information about options if playing in dev
+            if not self._is_running_on_pi():
+                logger.info("\nAvailable mappings:")
+                for tag in ['MOCK_TAG_1', 'MOCK_TAG_2', 'MOCK_TAG_3', 'MOCK_TAG_4']:
+                    music_file = self.mapping_manager.get_music_file(tag)
+                    if music_file:
+                        logger.info(f"Key {tag[-1]}: {music_file.name}")
             
             while True:
                 tag_id = self.rfid_reader.read_tag()
                 
                 if tag_id == 'QUIT':
+                    logger.info("Received quit command")
                     break
                 elif tag_id == 'L':
                     self.handle_learning_mode()
-                    # Refresh the display of available mappings after learning mode
-                    logger.info("\nAvailable mappings:")
-                    for tag in ['MOCK_TAG_1', 'MOCK_TAG_2', 'MOCK_TAG_3', 'MOCK_TAG_4']:
-                        music_file = self.mapping_manager.get_music_file(tag)
-                        if music_file:
-                            logger.info(f"Key {tag[-1]}: {music_file.name}")
                 elif tag_id:
                     self.handle_tag(tag_id)
                 
-                # If a track has ended, log it
                 if self.audio_player.has_ended:
                     logger.info("Track finished playing")
                 
-                time.sleep(0.1)  # Prevent busy waiting
+                time.sleep(0.1)
 
         except Exception as e:
             logger.error(f"Error in main loop: {str(e)}")

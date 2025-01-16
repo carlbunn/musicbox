@@ -45,9 +45,23 @@ class MappingManager:
         except Exception as e:
             logger.error(f"Error saving mappings: {str(e)}")
 
+    def remove_tag_mapping(self, rfid_tag: str) -> bool:
+        """Remove mapping for a specific RFID tag."""
+        try:
+            if rfid_tag in self.mappings:
+                del self.mappings[rfid_tag]
+                self._save_mappings()
+                logger.info(f"Removed mapping for tag: {rfid_tag}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing mapping: {str(e)}")
+            return False
+
     def add_mapping(self, rfid_tag: str, music_file: str) -> bool:
         """
         Add or update a mapping between RFID tag and music file.
+        If tag already exists, removes old mapping first.
         Returns True if successful.
         """
         try:
@@ -62,6 +76,12 @@ class MappingManager:
             if not music_path.exists():
                 logger.error(f"Music file not found: {music_path}")
                 return False
+
+            # Remove existing mapping for this tag if it exists
+            if rfid_tag in self.mappings:
+                old_file = self.mappings[rfid_tag]
+                logger.info(f"Removing existing mapping: {rfid_tag} -> {old_file}")
+                self.remove_tag_mapping(rfid_tag)
 
             # Store path relative to music directory
             relative_path = music_path.relative_to(self.music_dir)
