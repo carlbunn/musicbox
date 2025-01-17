@@ -14,6 +14,27 @@ class APIServer:
         self._setup_routes()
         
     def _setup_routes(self):
+        @self.app.route('/play', methods=['POST'])
+        def play_song():
+            try:
+                data = request.json
+                filename = data['filename']
+                
+                # Construct full path
+                music_path = Path(self.music_box.settings.get('music_directory')) / filename
+                
+                if not music_path.exists():
+                    return jsonify({'status': 'error', 'message': 'File not found'}), 404
+                    
+                if self.music_box.audio_player.play(str(music_path)):
+                    return jsonify({'status': 'success', 'message': 'Playing song'})
+                else:
+                    return jsonify({'status': 'error', 'message': 'Failed to play song'}), 500
+                    
+            except Exception as e:
+                logger.error(f"Error playing song: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+            
         @self.app.route('/upload', methods=['POST'])
         def upload_music():
             try:

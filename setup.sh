@@ -87,6 +87,144 @@ EOL
     print_status "Log rotation configuration"
 }
 
+setup_bluetooth() {
+    local BLUETOOTH_CONFIG="/etc/bluetooth/main.conf"
+    local BLUETOOTH_SERVICE="/etc/systemd/system/musicbox-bluetooth.service"
+    local STORED_DEVICES="$INSTALL_DIR/config/bluetooth_devices.conf"
+    
+    # Install required packages
+    echo "Installing Bluetooth packages..."
+    apt-get install -y bluetooth bluez rfkill
+
+    # Enable and start bluetooth service
+    systemctl enable bluetooth
+    systemctl start bluetooth
+    
+    # Wait for bluetooth to initialize
+    sleep 2
+    
+    # Ensure Bluetooth isn't blocked
+    rfkill unblock bluetooth
+    
+    # Modify main.conf to enable auto-power-on
+    if [ -f "$BLUETOOTH_CONFIG" ]; then
+        sed -i 's/#AutoEnable=false/AutoEnable=true/' "$BLUETOOTH_CONFIG"
+    fi
+
+    # Ask user if they want to discover a Bluetooth speaker
+    read -p "Would you like to discover and pair a Bluetooth speaker now? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        discover_and_pair_device "$STORED_DEVICES"
+    fi
+    
+    # Create autoconnect service
+    create_bluetooth_service "$BLUETOOTH_SERVICE" "$STORED_DEVICES"
+    
+    # Enable and start the service
+    systemctl daemon-reload
+    systemctl enable musicbox-bluetooth.service
+    systemctl start musicbox-bluetooth.service
+}
+
+discover_and_pair_device() {
+    local STORED_DEVICES=$1
+    local MAC_ADDRESS=""
+    local DEVICE_NAME=""
+    
+    echo "Scanning for Bluetooth devices..."
+    echo "Please ensure your speaker is in pairing mode."
+    
+    # Start interactive bluetoothctl session
+    expect -c '
+        spawn bluetoothctl
+        send "power on\r"
+        send "agent on\r"
+        send "default-agent\r"
+        send "scan on\r"
+        expect {
+            -re "Device (..:..:..:..:..:..)" {
+                puts "\nFound device: $expect_out(1,string)"
+                exp_continue
+            }
+            timeout {
+                puts "\nScan completed"
+            }
+        }
+        interact
+    '
+    
+    # Ask user for MAC address
+    read -p "Enter the MAC address of your speaker (e.g., 00:11:22:33:44:55): " MAC_ADDRESS
+    
+    # Try to pair and connect
+    expect -c "
+        spawn bluetoothctl
+        send \"pair $MAC_ADDRESS\r\"
+        expect \"Confirm passkey\"
+        send \"yes\r\"
+        expect \"Pairing successful\"
+        send \"trust $MAC_ADDRESS\r\"
+        expect \"trust succeeded\"
+        send \"connect $MAC_ADDRESS\r\"
+        expect \"Connection successful\"
+        send \"quit\r\"
+    "
+    
+    # Get device name
+    DEVICE_NAME=$(bluetoothctl info "$MAC_ADDRESS" | grep "Name" | cut -d ":" -f2 | xargs)
+    
+    # Store device information
+    mkdir -p "$(dirname "$STORED_DEVICES")"
+    echo "MAC_ADDRESS=\"$MAC_ADDRESS\"" > "$STORED_DEVICES"
+    echo "DEVICE_NAME=\"$DEVICE_NAME\"" >> "$STORED_DEVICES"
+    
+    echo "Device information stored in $STORED_DEVICES"
+}
+
+create_bluetooth_service() {
+    local SERVICE_FILE=$1
+    local STORED_DEVICES=$2
+    
+    cat > "$SERVICE_FILE" << EOL
+[Unit]
+Description=MusicBox Bluetooth Auto-connect
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=$INSTALL_DIR/scripts/bluetooth_connect.sh
+Restart=always
+RestartSec=10
+Environment=STORED_DEVICES=$STORED_DEVICES
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+    # Create the connection script
+    cat > "$INSTALL_DIR/scripts/bluetooth_connect.sh" << EOL
+#!/bin/bash
+
+# Source the stored device information
+source "\${STORED_DEVICES}"
+
+while true; do
+    if [ -n "\${MAC_ADDRESS}" ]; then
+        # Check if device is connected
+        if ! bluetoothctl info "\${MAC_ADDRESS}" | grep -q "Connected: yes"; then
+            echo "Attempting to connect to \${DEVICE_NAME}..."
+            bluetoothctl connect "\${MAC_ADDRESS}"
+        fi
+    fi
+    sleep 30
+done
+EOL
+
+    chmod +x "$INSTALL_DIR/scripts/bluetooth_connect.sh"
+}
+
 # Function to check if service needs restart
 needs_restart=false
 needs_reboot=false
@@ -179,6 +317,8 @@ if [ -d "$INSTALL_DIR" ]; then
     if [ -d "$INSTALL_DIR/.git" ]; then
         echo "Updating existing repository..."
         cd "$INSTALL_DIR"
+        # Add the safe directory configuration
+        git config --global --add safe.directory "$INSTALL_DIR"
         git fetch
         git reset --hard origin/main
         git clean -fd
@@ -189,6 +329,8 @@ if [ -d "$INSTALL_DIR" ]; then
         rm -rf "$INSTALL_DIR"
         mkdir -p "$INSTALL_DIR"
         chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
+        # Add the safe directory configuration before cloning
+        git config --global --add safe.directory "$INSTALL_DIR"
         run_as_service_user "git clone $REPO_URL $INSTALL_DIR"
         needs_restart=true
         print_status "Repository clone"
@@ -243,8 +385,23 @@ echo "Configuring Samba share..."
 # Backup existing config
 cp /etc/samba/smb.conf /etc/samba/smb.conf.bak
 
-# Add our share configuration
-cat >> /etc/samba/smb.conf << EOL
+# Create new smb.conf with only our share
+cat > /etc/samba/smb.conf << EOL
+[global]
+   workgroup = WORKGROUP
+   server string = %h server (Samba, MusicBox)
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   logging = file
+   panic action = /usr/share/samba/panic-action %d
+   server role = standalone server
+   obey pam restrictions = yes
+   unix password sync = yes
+   passwd program = /usr/bin/passwd %u
+   passwd chat = *Enter\snew\s*\spassword:* %n\n *Retype\snew\s*\spassword:* %n\n *password\supdated\ssuccessfully* .
+   pam password change = yes
+   map to guest = bad user
+   usershare allow guests = yes
 
 # MusicBox Share Configuration
 [musicbox]
@@ -305,6 +462,15 @@ else
     print_warning "Could not determine original user, you may need to manually add your user to the $SERVICE_GROUP group"
 fi
 
+# Ask user if they want to discover a Bluetooth speaker
+read -p "Would you like to set up a Bluetooth speaker? (y/N) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Setting up Bluetooth..."
+    setup_bluetooth
+    print_status "Bluetooth setup"
+fi
+
 # Update systemd service
 echo "Updating systemd service..."
 cat > /etc/systemd/system/musicbox.service << EOL
@@ -329,6 +495,7 @@ StartLimitBurst=10
 
 # Environment
 Environment=PYTHONUNBUFFERED=1
+Environment=MUSICBOX_ENV=production
 
 # Security enhancements
 ProtectSystem=full

@@ -30,6 +30,35 @@ print_warning() {
     echo -e "${YELLOW}!${NC} $1"
 }
 
+bluetooth_cleanup() {
+    echo "Cleaning up Bluetooth configuration..."
+    
+    # Stop and remove autoconnect service
+    systemctl stop musicbox-bluetooth.service 2>/dev/null || true
+    systemctl disable musicbox-bluetooth.service 2>/dev/null || true
+    rm -f /etc/systemd/system/musicbox-bluetooth.service
+    
+    # Remove stored devices configuration
+    rm -f /opt/musicbox/config/bluetooth_devices.conf
+    
+    # Remove connection script
+    rm -f /opt/musicbox/scripts/bluetooth_connect.sh
+    
+    # Reset bluetooth main.conf
+    sed -i 's/AutoEnable=true/#AutoEnable=false/' /etc/bluetooth/main.conf
+    
+    # Optional: Remove bluetooth packages
+    read -p "Remove Bluetooth packages? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        apt-get remove -y bluetooth bluez
+        apt-get autoremove -y
+    fi
+    
+    systemctl daemon-reload
+    print_status "Bluetooth cleanup completed"
+}
+
 echo "Starting MusicBox uninstallation..."
 
 # Ask for confirmation
@@ -57,6 +86,9 @@ systemctl disable musicbox.service 2>/dev/null || print_warning "Service was not
 rm -f /etc/systemd/system/musicbox.service
 systemctl daemon-reload
 print_status "Service removed"
+
+#Clean up bluetooth services
+bluetooth_cleanup
 
 # Backup music if requested
 if [ "$KEEP_MUSIC" = true ] && [ -d "$INSTALL_DIR/music" ]; then
@@ -100,6 +132,11 @@ else
     systemctl restart smbd nmbd
     print_status "Samba configuration removed"
 fi
+
+# Clean up git config
+echo "Cleaning up Git configuration..."
+git config --global --unset-all safe.directory "$INSTALL_DIR" || print_warning "Could not remove Git safe directory configuration"
+print_status "Git configuration cleaned up"
 
 # Remove log directory
 echo "Removing log directory..."
