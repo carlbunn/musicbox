@@ -34,6 +34,93 @@ class APIServer:
             except Exception as e:
                 logger.error(f"Error playing song: {str(e)}")
                 return jsonify({'status': 'error', 'message': str(e)}), 500
+        
+        @self.app.route('/pause', methods=['POST'])
+        def pause_playback():
+            """Pause current playback."""
+            try:
+                self.music_box.audio_player.pause()
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Playback paused'
+                })
+            except Exception as e:
+                logger.error(f"Error in pause: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+        @self.app.route('/resume', methods=['POST'])
+        def resume_playback():
+            """Resume paused playback."""
+            try:
+                self.music_box.audio_player.resume()
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Playback resumed'
+                })
+            except Exception as e:
+                logger.error(f"Error in resume: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+        @self.app.route('/seek', methods=['POST'])
+        def seek_playback():
+            """Seek to a specific position in milliseconds."""
+            try:
+                data = request.json
+                position_ms = data.get('position_ms')
+                
+                if position_ms is None:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'position_ms is required'
+                    }), 400
+                    
+                if self.music_box.audio_player.seek_to_position(position_ms):
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'Seeked to position {position_ms}ms'
+                    })
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Failed to seek'
+                    }), 500
+                    
+            except Exception as e:
+                logger.error(f"Error in seek: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+        @self.app.route('/skip', methods=['POST'])
+        def skip_playback():
+            """Skip forward or backward by a specified amount."""
+            try:
+                data = request.json
+                direction = data.get('direction', 'forward')
+                amount_ms = data.get('amount_ms', 15000)  # Default 15 seconds
+                
+                if direction not in ['forward', 'backward']:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Invalid direction. Use "forward" or "backward".'
+                    }), 400
+                
+                success = (self.music_box.audio_player.skip_forward(amount_ms) 
+                        if direction == 'forward' 
+                        else self.music_box.audio_player.skip_backward(amount_ms))
+                
+                if success:
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'Skipped {direction} by {amount_ms}ms'
+                    })
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Failed to skip {direction}'
+                    }), 500
+                    
+            except Exception as e:
+                logger.error(f"Error in skip: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
             
         @self.app.route('/upload', methods=['POST'])
         def upload_music():
@@ -87,10 +174,10 @@ class APIServer:
                 return jsonify({'status': 'error', 'message': str(e)}), 500
 
         @self.app.route('/status', methods=['GET'])
-        def get_status():
+        def get_detailed_status():
+            """Get detailed playback status."""
             try:
-                # Get current playback status
-                status = self.music_box.audio_player.get_status()
+                status = self.music_box.audio_player.get_detailed_status()
                 return jsonify(status)
             except Exception as e:
                 logger.error(f"Error getting status: {str(e)}")
@@ -107,7 +194,7 @@ class APIServer:
                 
                 # Get mappings
                 mapped_files = {str(Path(path)): tag_id 
-                            for tag_id, path in self.music_box.mapping_manager.mappings.items()}
+                                for tag_id, path in self.music_box.mapping_manager.mappings.items()}
                 
                 # Create response
                 songs = []
@@ -140,11 +227,65 @@ class APIServer:
             except Exception as e:
                 logger.error(f"Error refreshing songs: {str(e)}")
                 return jsonify({'status': 'error', 'message': str(e)}), 500
+            
+
+        @self.app.route('/spotify/download', methods=['POST'])
+        def download_spotify():
+            """Download a track from Spotify."""
+            try:
+                data = request.json
+                spotify_url = data.get('url')
+                
+                if not spotify_url:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Spotify URL is required'
+                    }), 400
+                    
+                # Initialize downloader if not exists
+                if not hasattr(self.music_box, 'spotify_downloader'):
+                    self.music_box.spotify_downloader = SpotifyDownloader(self.music_box.mapping_manager)
+                    
+                if self.music_box.spotify_downloader.add_track(spotify_url):
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Track added to download queue',
+                        'queue_size': self.music_box.spotify_downloader.get_queue_size()
+                    })
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Failed to add track to queue'
+                    }), 400
+                    
+            except Exception as e:
+                logger.error(f"Error in Spotify download: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+        @self.app.route('/spotify/status', methods=['GET'])
+        def spotify_status():
+            """Get Spotify downloader status."""
+            try:
+                if not hasattr(self.music_box, 'spotify_downloader'):
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Spotify downloader not initialized'
+                    }), 404
+                    
+                status = self.music_box.spotify_downloader.get_status()
+                return jsonify({
+                    'status': 'success',
+                    'data': status
+                })
+                
+            except Exception as e:
+                logger.error(f"Error getting Spotify status: {str(e)}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
 
     def start(self):
         """Start the API server in a separate thread"""
         def run_server():
-            self.app.run(host='0.0.0.0', port=8000)
+            self.app.run(host='0.0.0.0', port=8000, debug=False)
             
         self.server_thread = threading.Thread(target=run_server)
         self.server_thread.daemon = True  # Thread will be terminated when main program exits

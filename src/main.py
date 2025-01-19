@@ -16,13 +16,15 @@ import time
 from pathlib import Path
 from typing import Dict
 
+# Change to the project root directory
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 logger = get_logger(__name__)
 logger.info("Main module loading...")
 
 class MusicBox:
     def __init__(self):
         self.settings = Settings()
-        self.audio_player = AudioPlayer()
         
         # Use RC522Reader on Pi, MockRFIDReader for development
         if self._is_running_on_pi():
@@ -35,10 +37,17 @@ class MusicBox:
             self.rfid_reader = MockRFIDReader()
         
         self.mapping_manager = MappingManager()
+        self.audio_player = AudioPlayer(self.mapping_manager)
         
         # Initialize file manager with music directory
         music_dir = self.settings.get('music_directory', 'music')
         self.file_manager = FileManager(music_dir)
+
+        # Initialize Spotify downloader if enabled
+        if self.settings.get('spotify', {}).get('enabled', True):
+            from src.core.spotify_downloader import SpotifyDownloader
+            self.spotify_downloader = SpotifyDownloader(self.mapping_manager)
+            logger.info("Spotify downloader initialized")
 
         # Initialize API server
         self.api_server = APIServer(self)
@@ -153,6 +162,9 @@ class MusicBox:
                     if music_file:
                         logger.info(f"Key {tag[-1]}: {music_file.name}")
             
+            # Add this flag
+            track_end_logged = False
+
             while True:
                 tag_id = self.rfid_reader.read_tag()
                 
@@ -163,9 +175,11 @@ class MusicBox:
                     self.handle_learning_mode()
                 elif tag_id:
                     self.handle_tag(tag_id)
+                    track_end_logged = False
                 
-                if self.audio_player.has_ended:
+                if self.audio_player.has_ended and not track_end_logged:
                     logger.info("Track finished playing")
+                    track_end_logged = True 
                 
                 time.sleep(0.1)
 

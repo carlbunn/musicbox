@@ -22,12 +22,17 @@ class Settings:
         if not self._settings:
             self.load_settings()
 
-    def load_settings(self, config_path: str = "config.json") -> None:
+    def load_settings(self, config_path: str = "config/config.json") -> None:
         """Load settings from configuration file."""
         try:
+            # Convert config_path to absolute path if it's relative
+            if not Path(config_path).is_absolute():
+                config_path = Path(__file__).parent.parent.parent / config_path
+                
+            logger.debug(f"Attempting to load settings from: {config_path}")
             with open(config_path, 'r') as f:
                 self._settings = json.load(f)
-            logger.info("Settings loaded successfully")
+            logger.info(f"Settings loaded successfully: {self._settings}")
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
             self._settings = {}

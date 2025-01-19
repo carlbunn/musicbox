@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import vlc
 from typing import Dict, Optional, List
 from src.utils.logger import get_logger
 
@@ -11,8 +12,17 @@ class MappingManager:
     Handles persistence and validation of mappings.
     """
     def __init__(self, mapping_file: str = "config/mappings.json", music_dir: str = "music"):
-        self.mapping_file = Path(mapping_file)
-        self.music_dir = Path(music_dir).absolute()  # Get absolute path
+        # Convert paths to absolute using Path
+        if not Path(mapping_file).is_absolute():
+            self.mapping_file = Path(__file__).parent.parent.parent / mapping_file
+        else:
+            self.mapping_file = Path(mapping_file)
+            
+        if not Path(music_dir).is_absolute():
+            self.music_dir = Path(__file__).parent.parent.parent / music_dir
+        else:
+            self.music_dir = Path(music_dir)
+            
         logger.info(f"Initializing MappingManager with music directory: {self.music_dir}")
         self.mappings: Dict[str, str] = {}
         
@@ -44,6 +54,34 @@ class MappingManager:
             logger.info("Mappings saved successfully")
         except Exception as e:
             logger.error(f"Error saving mappings: {str(e)}")
+
+    def _extract_metadata(self, file_path: Path) -> Dict:
+        """Extract metadata from audio file."""
+        try:
+            media = vlc.Media(str(file_path))
+            media.parse()
+            
+            metadata = {
+                'title': media.get_meta(vlc.Meta.Title),
+                'artist': media.get_meta(vlc.Meta.Artist),
+                'album': media.get_meta(vlc.Meta.Album),
+                'filename': file_path.name,
+                'last_position': 0,  # Initialize position tracking
+            }
+            
+            # Use filename as title if no metadata found
+            if not metadata['title']:
+                metadata['title'] = file_path.stem
+                
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"Error extracting metadata from {file_path}: {str(e)}")
+            return {
+                'title': file_path.stem,
+                'filename': file_path.name,
+                'last_position': 0
+            }
 
     def remove_tag_mapping(self, rfid_tag: str) -> bool:
         """Remove mapping for a specific RFID tag."""
@@ -77,33 +115,37 @@ class MappingManager:
                 logger.error(f"Music file not found: {music_path}")
                 return False
 
-            # Remove existing mapping for this tag if it exists
-            if rfid_tag in self.mappings:
-                old_file = self.mappings[rfid_tag]
-                logger.info(f"Removing existing mapping: {rfid_tag} -> {old_file}")
-                self.remove_tag_mapping(rfid_tag)
-
-            # Store path relative to music directory
-            relative_path = music_path.relative_to(self.music_dir)
-            self.mappings[rfid_tag] = str(relative_path)
+            # Extract metadata and create mapping
+            metadata = self._extract_metadata(music_path)
+            relative_path = str(music_path.relative_to(self.music_dir))
+            
+            self.mappings[rfid_tag] = {
+                'path': relative_path,
+                'metadata': metadata
+            }
+            
             self._save_mappings()
-            logger.info(f"Added mapping: {rfid_tag} -> {relative_path}")
+            logger.info(f"Added mapping with metadata: {rfid_tag} -> {relative_path}")
             return True
 
         except Exception as e:
             logger.error(f"Error adding mapping: {str(e)}")
             return False
 
-    def get_music_file(self, rfid_tag: str) -> Optional[Path]:
-        """
-        Get full path of music file for RFID tag.
-        Returns None if tag isn't mapped or file doesn't exist.
-        """
+    def get_music_file(self, rfid_tag: str) -> Optional[Dict]:
+        """Get file info including path and metadata."""
         try:
             if rfid_tag in self.mappings:
-                music_path = self.music_dir / self.mappings[rfid_tag]
+                mapping = self.mappings[rfid_tag]
+                music_path = self.music_dir / mapping['path']
                 if music_path.exists():
-                    return music_path
+                    return {
+                        'path': music_path,
+                        'metadata': mapping.get('metadata', {
+                            'title': music_path.stem,
+                            'last_position': 0
+                        })
+                    }
                 logger.warning(f"Mapped file not found: {music_path}")
             return None
         except Exception as e:
@@ -164,3 +206,58 @@ class MappingManager:
             logger.error(f"Error validating mappings: {str(e)}")
 
         return issues
+    
+    def update_position(self, file_path: str, position_ms: int) -> None:
+        """Update the last played position for a file."""
+        try:
+            # Find the mapping entry for this file
+            relative_path = str(Path(file_path).relative_to(self.music_dir))
+            for tag_id, mapping in self.mappings.items():
+                if mapping.get('path') == relative_path:
+                    if 'metadata' not in mapping:
+                        mapping['metadata'] = {}
+                    mapping['metadata']['last_position'] = position_ms
+                    self._save_mappings()
+                    break
+        except Exception as e:
+            logger.error(f"Error updating position: {str(e)}")
+    
+    def get_songs(self) -> List[Dict]:
+        """Get all songs with their metadata and mapping status."""
+        try:
+            songs = []
+            # Get all music files
+            for ext in ['.mp3', '.wav', '.flac', '.ogg']:
+                for file_path in self.music_dir.glob(f"*{ext}"):
+                    relative_path = str(file_path.relative_to(self.music_dir))
+                    
+                    # Find if file is mapped
+                    mapped_to = None
+                    metadata = None
+                    for tag_id, mapping in self.mappings.items():
+                        if mapping.get('path') == relative_path:
+                            mapped_to = tag_id
+                            metadata = mapping.get('metadata', {})
+                            break
+                    
+                    # If not mapped, extract metadata
+                    if not metadata:
+                        metadata = self._extract_metadata(file_path)
+                    
+                    songs.append({
+                        'filename': file_path.name,
+                        'path': relative_path,
+                        'mapped_to': mapped_to,
+                        'title': metadata.get('title', file_path.stem),
+                        'artist': metadata.get('artist'),
+                        'album': metadata.get('album'),
+                        'last_position': metadata.get('last_position', 0),
+                        'size': file_path.stat().st_size,
+                        'modified': file_path.stat().st_mtime
+                    })
+            
+            return sorted(songs, key=lambda x: x['filename'].lower())
+            
+        except Exception as e:
+            logger.error(f"Error getting songs: {str(e)}")
+            return []

@@ -1,0 +1,10 @@
+{
+    "music_directory": "music",
+    "volume": 50,
+    "debug": true,
+    "spotify": {
+        "enabled": true,
+        "max_concurrent_downloads": 3,
+        "auto_map_downloads": true
+    }
+}

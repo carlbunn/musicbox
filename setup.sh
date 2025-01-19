@@ -43,7 +43,7 @@ cleanup() {
         rm -f /etc/systemd/system/musicbox.service
         systemctl daemon-reload
     fi
-    
+
     # Only remove installation directory if it doesn't contain user music
     if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/music" ]; then
         rm -rf "$INSTALL_DIR"
@@ -60,6 +60,11 @@ print_status() {
         echo -e "${RED}✗${NC} Error: $1 failed"
         exit 1
     fi
+}
+
+# Function to print a warning
+print_warning() {
+    echo -e "${YELLOW}!${NC} $1"
 }
 
 # Function to run commands as service user
@@ -85,144 +90,6 @@ $LOG_DIR/*.log {
 EOL
     chmod 644 /etc/logrotate.d/musicbox
     print_status "Log rotation configuration"
-}
-
-setup_bluetooth() {
-    local BLUETOOTH_CONFIG="/etc/bluetooth/main.conf"
-    local BLUETOOTH_SERVICE="/etc/systemd/system/musicbox-bluetooth.service"
-    local STORED_DEVICES="$INSTALL_DIR/config/bluetooth_devices.conf"
-    
-    # Install required packages
-    echo "Installing Bluetooth packages..."
-    apt-get install -y bluetooth bluez rfkill
-
-    # Enable and start bluetooth service
-    systemctl enable bluetooth
-    systemctl start bluetooth
-    
-    # Wait for bluetooth to initialize
-    sleep 2
-    
-    # Ensure Bluetooth isn't blocked
-    rfkill unblock bluetooth
-    
-    # Modify main.conf to enable auto-power-on
-    if [ -f "$BLUETOOTH_CONFIG" ]; then
-        sed -i 's/#AutoEnable=false/AutoEnable=true/' "$BLUETOOTH_CONFIG"
-    fi
-
-    # Ask user if they want to discover a Bluetooth speaker
-    read -p "Would you like to discover and pair a Bluetooth speaker now? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        discover_and_pair_device "$STORED_DEVICES"
-    fi
-    
-    # Create autoconnect service
-    create_bluetooth_service "$BLUETOOTH_SERVICE" "$STORED_DEVICES"
-    
-    # Enable and start the service
-    systemctl daemon-reload
-    systemctl enable musicbox-bluetooth.service
-    systemctl start musicbox-bluetooth.service
-}
-
-discover_and_pair_device() {
-    local STORED_DEVICES=$1
-    local MAC_ADDRESS=""
-    local DEVICE_NAME=""
-    
-    echo "Scanning for Bluetooth devices..."
-    echo "Please ensure your speaker is in pairing mode."
-    
-    # Start interactive bluetoothctl session
-    expect -c '
-        spawn bluetoothctl
-        send "power on\r"
-        send "agent on\r"
-        send "default-agent\r"
-        send "scan on\r"
-        expect {
-            -re "Device (..:..:..:..:..:..)" {
-                puts "\nFound device: $expect_out(1,string)"
-                exp_continue
-            }
-            timeout {
-                puts "\nScan completed"
-            }
-        }
-        interact
-    '
-    
-    # Ask user for MAC address
-    read -p "Enter the MAC address of your speaker (e.g., 00:11:22:33:44:55): " MAC_ADDRESS
-    
-    # Try to pair and connect
-    expect -c "
-        spawn bluetoothctl
-        send \"pair $MAC_ADDRESS\r\"
-        expect \"Confirm passkey\"
-        send \"yes\r\"
-        expect \"Pairing successful\"
-        send \"trust $MAC_ADDRESS\r\"
-        expect \"trust succeeded\"
-        send \"connect $MAC_ADDRESS\r\"
-        expect \"Connection successful\"
-        send \"quit\r\"
-    "
-    
-    # Get device name
-    DEVICE_NAME=$(bluetoothctl info "$MAC_ADDRESS" | grep "Name" | cut -d ":" -f2 | xargs)
-    
-    # Store device information
-    mkdir -p "$(dirname "$STORED_DEVICES")"
-    echo "MAC_ADDRESS=\"$MAC_ADDRESS\"" > "$STORED_DEVICES"
-    echo "DEVICE_NAME=\"$DEVICE_NAME\"" >> "$STORED_DEVICES"
-    
-    echo "Device information stored in $STORED_DEVICES"
-}
-
-create_bluetooth_service() {
-    local SERVICE_FILE=$1
-    local STORED_DEVICES=$2
-    
-    cat > "$SERVICE_FILE" << EOL
-[Unit]
-Description=MusicBox Bluetooth Auto-connect
-After=bluetooth.service
-Requires=bluetooth.service
-
-[Service]
-Type=simple
-ExecStart=$INSTALL_DIR/scripts/bluetooth_connect.sh
-Restart=always
-RestartSec=10
-Environment=STORED_DEVICES=$STORED_DEVICES
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-    # Create the connection script
-    cat > "$INSTALL_DIR/scripts/bluetooth_connect.sh" << EOL
-#!/bin/bash
-
-# Source the stored device information
-source "\${STORED_DEVICES}"
-
-while true; do
-    if [ -n "\${MAC_ADDRESS}" ]; then
-        # Check if device is connected
-        if ! bluetoothctl info "\${MAC_ADDRESS}" | grep -q "Connected: yes"; then
-            echo "Attempting to connect to \${DEVICE_NAME}..."
-            bluetoothctl connect "\${MAC_ADDRESS}"
-        fi
-    fi
-    sleep 30
-done
-EOL
-
-    chmod +x "$INSTALL_DIR/scripts/bluetooth_connect.sh"
 }
 
 # Function to check if service needs restart
@@ -300,7 +167,8 @@ apt-get install -y \
     python3-vlc \
     python3-rpi.gpio \
     python3-pip \
-    python3-venv
+    python3-venv \
+    expect
 print_status "System packages"
 
 # Handle existing installation
@@ -360,13 +228,21 @@ chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/music"
 chmod 775 "$INSTALL_DIR/music"  # Group writable for music directory
 print_status "Music directory setup"
 
-# Set up Python environment
 echo "Setting up Python environment..."
 if [ -d "$INSTALL_DIR/venv" ]; then
-    rm -rf "$INSTALL_DIR/venv"
+    # Check if the venv is functional by trying to run python
+    if run_as_service_user "cd $INSTALL_DIR && ./venv/bin/python3 -c 'import sys; sys.exit(0)'"; then
+        print_status "Using existing virtual environment"
+    else
+        echo "Existing virtual environment appears broken, recreating..."
+        rm -rf "$INSTALL_DIR/venv"
+        run_as_service_user "cd $INSTALL_DIR && python3 -m venv venv"
+        print_status "Virtual environment setup"
+    fi
+else
+    run_as_service_user "cd $INSTALL_DIR && python3 -m venv venv"
+    print_status "Virtual environment setup"
 fi
-run_as_service_user "cd $INSTALL_DIR && python3 -m venv venv"
-print_status "Virtual environment setup"
 
 # Install Python packages
 echo "Installing project dependencies..."
@@ -462,15 +338,6 @@ else
     print_warning "Could not determine original user, you may need to manually add your user to the $SERVICE_GROUP group"
 fi
 
-# Ask user if they want to discover a Bluetooth speaker
-read -p "Would you like to set up a Bluetooth speaker? (y/N) " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "Setting up Bluetooth..."
-    setup_bluetooth
-    print_status "Bluetooth setup"
-fi
-
 # Update systemd service
 echo "Updating systemd service..."
 cat > /etc/systemd/system/musicbox.service << EOL
@@ -557,6 +424,15 @@ else
         echo -e "${RED}Service may not be running correctly. Please check logs for details.${NC}"
         exit 1
     fi
+fi
+
+# Ask user if they want to setup Bluetooth
+read -p "Would you like to set up a Bluetooth speaker? (y/N) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Setting up Bluetooth..."
+    ./setup_bluetooth.sh
+    print_status "Bluetooth setup"
 fi
 
 echo -e "\n${GREEN}Installation complete!${NC}"

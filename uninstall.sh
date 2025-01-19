@@ -33,25 +33,45 @@ print_warning() {
 bluetooth_cleanup() {
     echo "Cleaning up Bluetooth configuration..."
     
-    # Stop and remove autoconnect service
-    systemctl stop musicbox-bluetooth.service 2>/dev/null || true
-    systemctl disable musicbox-bluetooth.service 2>/dev/null || true
-    rm -f /etc/systemd/system/musicbox-bluetooth.service
+    # Stop and remove all related services
+    systemctl stop bluealsa.service 2>/dev/null || true
+    systemctl stop bluealsa-aplay.service 2>/dev/null || true
+    systemctl disable bluealsa.service 2>/dev/null || true
+    systemctl disable bluealsa-aplay.service 2>/dev/null || true
     
-    # Remove stored devices configuration
-    rm -f /opt/musicbox/config/bluetooth_devices.conf
+    # Remove the services
+    rm -f /etc/systemd/system/bluealsa.service
+    rm -f /etc/systemd/system/bluealsa-aplay.service
     
-    # Remove connection script
-    rm -f /opt/musicbox/scripts/bluetooth_connect.sh
+    # Remove udev rules
+    rm -f /etc/udev/rules.d/99-bluetooth-connect.rules
+    udevadm control --reload-rules
     
-    # Reset bluetooth main.conf
-    sed -i 's/AutoEnable=true/#AutoEnable=false/' /etc/bluetooth/main.conf
+    # Remove stored configuration
+    rm -f /etc/musicbox/bluetooth.conf
+    
+    # Remove bluez-alsa if installed
+    if [ -d "/usr/local/lib/alsa-lib" ]; then
+        echo "Removing bluez-alsa..."
+        rm -rf /usr/local/lib/alsa-lib/libasound_module_pcm_bluealsa.so
+        rm -rf /usr/local/lib/alsa-lib/libasound_module_ctl_bluealsa.so
+        rm -rf /usr/local/bin/bluealsa
+        rm -rf /usr/local/bin/bluealsa-aplay
+    fi
+    
+    # Remove system users
+    if id "bluealsa" &>/dev/null; then
+        userdel -r bluealsa 2>/dev/null || true
+    fi
+    if id "bluealsa-aplay" &>/dev/null; then
+        userdel -r bluealsa-aplay 2>/dev/null || true
+    fi
     
     # Optional: Remove bluetooth packages
     read -p "Remove Bluetooth packages? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        apt-get remove -y bluetooth bluez
+        apt-get remove -y bluetooth bluez bluez-alsa
         apt-get autoremove -y
     fi
     
