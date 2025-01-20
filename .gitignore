@@ -36,6 +36,16 @@ var/
 venv/
 .vscode/
 *.log
+logs/
+music/*
+!music/.gitkeep
+.DS_Store
+Thumbs.db
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 =======
 wheels/
 share/python-wheels/
