@@ -10,8 +10,8 @@ class RFIDReader(ABC):
     Concrete implementation will be added once hardware details are known.
     """
     @abstractmethod
-    def initialize(self) -> bool:
-        """Initialize the RFID reader hardware."""
+    def initialise(self) -> bool:
+        """Initialise the RFID reader hardware."""
         pass
 
     @abstractmethod
