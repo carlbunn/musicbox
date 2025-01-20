@@ -16,14 +16,14 @@ class MockRFIDReader(RFIDReader):
     def __init__(self):
         self._fd = sys.stdin.fileno()
         self._old_settings = termios.tcgetattr(self._fd)
-        logger.info("MockRFIDReader initialized")
+        logger.info("MockRFIDReader initialised")
 
-    def initialize(self) -> bool:
+    def initialise(self) -> bool:
         try:
             tty.setraw(sys.stdin.fileno())
             return True
         except Exception as e:
-            logger.error(f"Error initializing mock RFID reader: {str(e)}")
+            logger.error(f"Error initialising mock RFID reader: {str(e)}")
             return False
 
     # Update in src/core/mock_rfid_reader.py

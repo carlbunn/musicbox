@@ -10,17 +10,17 @@ class RC522Reader(RFIDReader):
     def __init__(self):
         self._reader = None
         self._raw_reader = None
-        logger.info("RC522Reader: Initializing...")
+        logger.info("RC522Reader: Initialising...")
 
-    def initialize(self) -> bool:
+    def initialise(self) -> bool:
         try:
             GPIO.setwarnings(False)
             self._reader = SimpleMFRC522()
             self._raw_reader = MFRC522()
-            logger.info("RC522Reader: Successfully initialized")
+            logger.info("RC522Reader: Successfully initialised")
             return True
         except Exception as e:
-            logger.error(f"RC522Reader: Failed to initialize - {str(e)}")
+            logger.error(f"RC522Reader: Failed to initialise - {str(e)}")
             return False
 
     def read_tag(self) -> Optional[str]:

@@ -12,9 +12,9 @@ logger = get_logger(__name__)
 
 class SpotifyDownloader:
     def __init__(self, mapping_manager=None):
-        """Initialize the downloader using project settings"""
+        """Initialise the downloader using project settings"""
         self.mapping_manager = mapping_manager
-        """Initialize the downloader using project settings"""
+        """Initialise the downloader using project settings"""
         self.settings = Settings()
         self.output_dir = Path(self.settings.get('music_directory', 'music'))
         # Try to find spotdl in the virtual environment
@@ -39,7 +39,7 @@ class SpotifyDownloader:
         self.download_thread = threading.Thread(target=self._download_worker)
         self.download_thread.daemon = True
         self.download_thread.start()
-        logger.info(f"SpotifyDownloader initialized with output directory: {self.output_dir}")
+        logger.info(f"SpotifyDownloader initialised with output directory: {self.output_dir}")
         
     def add_track(self, spotify_url: str) -> bool:
         """

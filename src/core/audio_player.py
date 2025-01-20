@@ -1,6 +1,7 @@
 import vlc
 from typing import Optional, Dict
 from src.utils.logger import get_logger
+from src.core.vlc_manager import VLCManager
 import time
 from pathlib import Path
 
@@ -12,14 +13,16 @@ class AudioPlayer:
     Provides playback status and metadata information.
     """
     def __init__(self, mapping_manager):
-        self._current_player: Optional[vlc.MediaPlayer] = None
-        self._current_media: Optional[vlc.Media] = None
+        self._vlc_manager = VLCManager()
+        self._current_player = None
+        self._current_media = None
         self._is_playing = False
         self._metadata: Dict = {}
         self._current_file: Optional[str] = None
         self._mapping_manager = mapping_manager
-        logger.info("AudioPlayer initialized")
-
+        logger.info("AudioPlayer initialised")
+    
+    @staticmethod
     def _createVLCInstance():
         return vlc.Instance('--aout=alsa', '--alsa-audio-device=bluetooth')
 
@@ -65,14 +68,14 @@ class AudioPlayer:
                 was_playing = self._is_playing
                 
                 # Create new instance and player
-                instance = self._createVLCInstance()
+                instance = AudioPlayer._createVLCInstance()
                 new_player = instance.media_player_new()
                 new_media = instance.media_new(str(self._current_file))
                 new_player.set_media(new_media)
                 
                 # Start playback
                 new_player.play()
-                time.sleep(0.1)  # Brief wait for media to initialize
+                time.sleep(0.1)  # Brief wait for media to initialise
                 
                 # Seek in new player
                 new_player.set_time(position_ms)
@@ -151,43 +154,41 @@ class AudioPlayer:
     def play(self, file_path: str) -> bool:
         """Play audio file from given path."""
         try:
-            # Save position of current track before switching
-            if self._current_file and self._current_file != file_path:
-                self._save_current_position()
-            
-            if self._current_player:
-                self._current_player.stop()
-                self._current_player.release()
-                self._current_player = None
-                self._current_media = None
+            file_path = Path(file_path).resolve()
 
-            # Create new instances
-            instance = self._createVLCInstance()
-            #self._current_player = vlc.MediaPlayer(file_path)
-            self._current_player = instance.media_player_new()
-            #self._current_media = self._current_player.get_media()
-            self._current_media = instance.media_new(file_path)
-            self._current_player.set_media(self._current_media)
-            
+            # Save position of current track before switching
+            if self._current_file and self._current_file != str(file_path):
+                self._save_current_position()
+
+            logger.info(f"Creating new player for: {file_path}")
+
+            # Use VLCManager to create player
+            result = self._vlc_manager.create_player(str(file_path))
+            if not result:
+                logger.error("Failed to create player")
+                return False
+
+            self._current_player = result['player']
+            self._current_media = result['media']
+
             # Parse media information and metadata
             if self._current_media:
                 self._current_media.parse()
                 self._metadata = self._extract_metadata(file_path)
             
-            self._current_player.play()
+            # Get file info which includes last position
+            file_info = self._mapping_manager.get_file_info(str(file_path))
+            
+            play_result = self._current_player.play()
+            logger.info(f"VLC play() result: {play_result}")
+            
             self._is_playing = True
-            self._current_file = file_path
+            self._current_file = str(file_path)
 
             # Restore last position if available
-            relative_path = str(Path(file_path).relative_to(self._mapping_manager.music_dir))
-            for mapping in self._mapping_manager.mappings.values():
-                if mapping.get('path') == relative_path:
-                    last_position = mapping.get('metadata', {}).get('last_position', 0)
-                    if last_position > 0:
-                        # Wait briefly for playback to start before seeking
-                        time.sleep(0.1)
-                        self._current_player.set_time(last_position)
-                    break
+            if file_info and file_info.get('last_position', 0) > 0:
+                time.sleep(0.1)  # Brief wait for playback to start
+                self._current_player.set_time(file_info['last_position'])
 
             logger.info(f"Playing: {file_path}")
             return True
@@ -227,15 +228,15 @@ class AudioPlayer:
         return metadata
 
     def stop(self) -> None:
-        """Stop playback and save position."""
+        """Stop playback and clean up resources."""
         try:
             self._save_current_position()
-            
-            if self._current_player:
-                self._current_player.stop()
-                self._is_playing = False
-                self._current_file = None
-                logger.info("Playback stopped")
+            self._vlc_manager.cleanup()
+            self._is_playing = False
+            self._current_file = None
+            self._current_player = None
+            self._current_media = None
+            logger.info("Playback stopped")
         except Exception as e:
             logger.error(f"Error stopping playback: {str(e)}")
 
@@ -337,3 +338,10 @@ class AudioPlayer:
         }
         
         return display_info
+    
+    def __del__(self):
+        """Ensure cleanup on object destruction."""
+        try:
+            self.stop()
+        except Exception as e:
+            logger.error(f"Error during AudioPlayer cleanup: {str(e)}")

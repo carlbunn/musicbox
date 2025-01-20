@@ -168,7 +168,8 @@ apt-get install -y \
     python3-rpi.gpio \
     python3-pip \
     python3-venv \
-    expect
+    expect \
+    ffmpeg
 print_status "System packages"
 
 # Handle existing installation

@@ -12,7 +12,7 @@ class FileManager:
     """
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        logger.info(f"FileManager initialized with base path: {base_path}")
+        logger.info(f"FileManager initialised with base path: {base_path}")
 
     def get_audio_files(self) -> Generator[Path, None, None]:
         """

@@ -3,6 +3,7 @@ import base64
 from pathlib import Path
 import threading
 from src.utils.logger import get_logger
+from src.core.spotify_downloader import SpotifyDownloader
 
 logger = get_logger(__name__)
 
@@ -187,23 +188,29 @@ class APIServer:
         def get_songs():
             """Get all songs and their mapping status"""
             try:
+                # Scan directory to ensure we have latest files
+                self.music_box.mapping_manager._scan_music_directory()
+
                 # Get all music files
-                music_files = []
-                for ext in ['.mp3', '.wav', '.flac', '.ogg']:
-                    music_files.extend(Path(self.music_box.settings.get('music_directory')).glob(f"*{ext}"))
-                
-                # Get mappings
-                mapped_files = {str(Path(path)): tag_id 
-                                for tag_id, path in self.music_box.mapping_manager.mappings.items()}
-                
-                # Create response
                 songs = []
-                for file_path in music_files:
-                    relative_path = str(file_path.relative_to(self.music_box.settings.get('music_directory')))
+                for rel_path, file_info in self.music_box.mapping_manager.files.items():
+                    # Find if file is mapped
+                    mapped_to = None
+                    for tag_id, mapping in self.music_box.mapping_manager.mappings.items():
+                        if mapping['path'] == rel_path:
+                            mapped_to = tag_id
+                            break
+                
+                    # Get absolute path for file stats
+                    file_path = Path(self.music_box.mapping_manager.music_dir) / rel_path
                     songs.append({
                         'filename': file_path.name,
-                        'path': relative_path,
-                        'mapped_to': mapped_files.get(relative_path, None),
+                        'path': rel_path,
+                        'mapped_to': mapped_to,
+                        'title': file_info['metadata'].get('title', file_path.stem),
+                        'artist': file_info['metadata'].get('artist'),
+                        'album': file_info['metadata'].get('album'),
+                        'last_position': file_info.get('last_position', 0),
                         'size': file_path.stat().st_size,
                         'modified': file_path.stat().st_mtime
                     })
@@ -242,7 +249,7 @@ class APIServer:
                         'message': 'Spotify URL is required'
                     }), 400
                     
-                # Initialize downloader if not exists
+                # Initialise downloader if not exists
                 if not hasattr(self.music_box, 'spotify_downloader'):
                     self.music_box.spotify_downloader = SpotifyDownloader(self.music_box.mapping_manager)
                     
@@ -269,7 +276,7 @@ class APIServer:
                 if not hasattr(self.music_box, 'spotify_downloader'):
                     return jsonify({
                         'status': 'error',
-                        'message': 'Spotify downloader not initialized'
+                        'message': 'Spotify downloader not initialised'
                     }), 404
                     
                 status = self.music_box.spotify_downloader.get_status()

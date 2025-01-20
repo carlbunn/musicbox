@@ -1,4 +1,3 @@
-# src/main.py
 import sys
 import os
 
@@ -13,6 +12,7 @@ from src.config.settings import Settings
 from src.api.server import APIServer
 from src.utils.logger import get_logger
 import time
+import signal
 from pathlib import Path
 from typing import Dict
 
@@ -39,20 +39,20 @@ class MusicBox:
         self.mapping_manager = MappingManager()
         self.audio_player = AudioPlayer(self.mapping_manager)
         
-        # Initialize file manager with music directory
+        # Initialise file manager with music directory
         music_dir = self.settings.get('music_directory', 'music')
         self.file_manager = FileManager(music_dir)
 
-        # Initialize Spotify downloader if enabled
+        # Initialise Spotify downloader if enabled
         if self.settings.get('spotify', {}).get('enabled', True):
             from src.core.spotify_downloader import SpotifyDownloader
             self.spotify_downloader = SpotifyDownloader(self.mapping_manager)
-            logger.info("Spotify downloader initialized")
+            logger.info("Spotify downloader initialised")
 
-        # Initialize API server
+        # Initialise API server
         self.api_server = APIServer(self)
         
-        logger.info("MusicBox initialized")
+        logger.info("MusicBox initialised")
 
     def _is_running_on_pi(self) -> bool:
         """Check if we're running on a Raspberry Pi."""
@@ -137,8 +137,8 @@ class MusicBox:
     def run(self):
         """Main program loop."""
         try:
-            if not self.rfid_reader.initialize():
-                logger.error("Failed to initialize RFID reader")
+            if not self.rfid_reader.initialise():
+                logger.error("Failed to initialise RFID reader")
                 return
             
             self.api_server.start()
@@ -194,6 +194,88 @@ class MusicBox:
         self.rfid_reader.cleanup()
         logger.info("MusicBox cleaned up")
 
+class GracefulShutdown:
+    def __init__(self, music_box):
+        self.music_box = music_box
+        self.shutdown = False
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        """Handle shutdown signals gracefully."""
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        self.shutdown = True
+        
+        try:
+            # Stop RFID reading
+            if hasattr(self.music_box, 'rfid_reader'):
+                logger.info("Stopping RFID reader...")
+                self.music_box.rfid_reader.cleanup()
+
+            # Save current playback position and stop audio
+            if hasattr(self.music_box, 'audio_player'):
+                logger.info("Stopping audio playback...")
+                self.music_box.audio_player._save_current_position()
+                self.music_box.audio_player.stop()
+            
+            # Save any pending mappings
+            if hasattr(self.music_box, 'mapping_manager'):
+                logger.info("Saving mappings...")
+                self.music_box.mapping_manager._save_mappings()
+            
+            # Stop the API server
+            if hasattr(self.music_box, 'api_server'):
+                logger.info("Stopping API server...")
+                self.music_box.api_server.stop()
+            
+            # Stop Spotify downloader if running
+            if hasattr(self.music_box, 'spotify_downloader'):
+                logger.info("Stopping Spotify downloader...")
+                self.music_box.spotify_downloader.stop()
+            
+            logger.info("Graceful shutdown completed")
+            sys.exit(0)
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {str(e)}")
+            sys.exit(1)
+
+def main():
+    try:
+        logger.info("Starting MusicBox...")
+        music_box = MusicBox()
+        
+        # Initialise graceful shutdown handler
+        shutdown_handler = GracefulShutdown(music_box)
+        
+        # Main application loop
+        while not shutdown_handler.shutdown:
+            try:
+                # Read RFID tag (non-blocking)
+                tag = music_box.rfid_reader.read_tag()
+                
+                if tag == 'QUIT':
+                    logger.info("Quit command received")
+                    break
+                    
+                elif tag:
+                    music_box.handle_tag(tag)
+                    
+                # Small sleep to prevent CPU hogging
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error in main loop: {str(e)}")
+                time.sleep(1)  # Prevent rapid error loops
+        
+        # If we break from the loop naturally, exit gracefully
+        shutdown_handler.exit_gracefully(signal.SIGTERM, None)
+        
+    except Exception as e:
+        logger.error(f"Fatal error in main: {str(e)}")
+        sys.exit(1)
+
 if __name__ == "__main__":
+    main()
     music_box = MusicBox()
     music_box.run()
