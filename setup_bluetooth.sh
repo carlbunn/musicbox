@@ -65,6 +65,18 @@ adduser bluealsa-aplay audio
 adduser bluealsa bluetooth
 print_status "User setup"
 
+echo "Setting up audio output..."
+cat > /etc/asound.conf << EOL
+pcm.bluetooth {
+    type plug
+    slave.pcm "bluealsa"
+}
+
+ctl.bluetooth {
+    type bluealsa
+}
+EOL
+
 # Enable and start services
 echo "Configuring services..."
 systemctl enable bluealsa.service
@@ -96,7 +108,7 @@ discover_and_pair_device() {
             echo -e "${YELLOW}No devices found. Retrying...${NC}"
             ((attempt++))
             continue
-        }
+        fi
         
         # Display devices with numbers
         echo -e "\nAvailable devices:"
@@ -139,15 +151,16 @@ discover_and_pair_device() {
         
         # Create udev rule for auto-connect
         echo "Setting up auto-connect..."
-        echo "ACTION==\"add\", SUBSYSTEM==\"bluetooth\", ATTR{address}==\"$mac_address\", ATTR{type}==\"1\", ENV{SYSTEMD_WANTS}+=\"bluetooth-auto-connect@%k.service\"" > /etc/udev/rules.d/99-bluetooth-connect.rules
+        #echo "ACTION==\"add\", SUBSYSTEM==\"bluetooth\", ATTR{address}==\"$mac_address\", ATTR{type}==\"1\", ENV{SYSTEMD_WANTS}+=\"bluetooth-auto-connect@%k.service\"" > /etc/udev/rules.d/99-bluetooth-connect.rules
+        echo "ACTION==\"add\", SUBSYSTEM==\"bluetooth\", ATTR{address}==\"$mac_address\", RUN+=\"/usr/bin/bluetoothctl connect $mac_address\"" > /etc/udev/rules.d/99-bluetooth-connect.rules
         
         # Reload udev rules
         udevadm control --reload-rules
-        
+
         print_status "Bluetooth device setup"
         
         # Store the MAC address for future reference
-        echo "BLUETOOTH_MAC=$mac_address" > /etc/musicbox/bluetooth.conf
+        #echo "BLUETOOTH_MAC=$mac_address" > /etc/musicbox/bluetooth.conf
         
         return 0
     else

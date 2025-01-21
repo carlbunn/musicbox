@@ -121,7 +121,7 @@ fi
 
 # Add service user to required hardware groups
 echo "Setting up hardware access permissions..."
-for group in gpio spi i2c; do
+for group in gpio spi i2c audio; do
     if getent group $group >/dev/null; then
         usermod -a -G $group "$SERVICE_USER"
     fi
@@ -433,6 +433,14 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "Setting up Bluetooth..."
     ./setup_bluetooth.sh
+
+    # Add service user to required hardware groups
+    echo "Setting up bluetooth access permissions..."
+    for group in bluetooth; do
+        if getent group $group >/dev/null; then
+            usermod -a -G $group "$SERVICE_USER"
+        fi
+    done
     print_status "Bluetooth setup"
 fi
 

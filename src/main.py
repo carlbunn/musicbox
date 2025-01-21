@@ -240,42 +240,6 @@ class GracefulShutdown:
             logger.error(f"Error during shutdown: {str(e)}")
             sys.exit(1)
 
-def main():
-    try:
-        logger.info("Starting MusicBox...")
-        music_box = MusicBox()
-        
-        # Initialise graceful shutdown handler
-        shutdown_handler = GracefulShutdown(music_box)
-        
-        # Main application loop
-        while not shutdown_handler.shutdown:
-            try:
-                # Read RFID tag (non-blocking)
-                tag = music_box.rfid_reader.read_tag()
-                
-                if tag == 'QUIT':
-                    logger.info("Quit command received")
-                    break
-                    
-                elif tag:
-                    music_box.handle_tag(tag)
-                    
-                # Small sleep to prevent CPU hogging
-                time.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"Error in main loop: {str(e)}")
-                time.sleep(1)  # Prevent rapid error loops
-        
-        # If we break from the loop naturally, exit gracefully
-        shutdown_handler.exit_gracefully(signal.SIGTERM, None)
-        
-    except Exception as e:
-        logger.error(f"Fatal error in main: {str(e)}")
-        sys.exit(1)
-
 if __name__ == "__main__":
-    main()
     music_box = MusicBox()
     music_box.run()
