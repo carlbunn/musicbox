@@ -220,7 +220,7 @@ class MappingManager:
             logger.error(f"Error validating mappings: {e}")
             return issues
 
-    def scan_directory(self) -> None:
+    def scan_directory(self) -> bool:
         """Scan music directory and update file database."""
         try:
             # Find all music files
@@ -252,8 +252,11 @@ class MappingManager:
             self._mark_database_changed()
             logger.info(f"Scan complete. Found {len(current_files)} files")
 
+            return True
+
         except Exception as e:
             logger.error(f"Error scanning directory: {e}")
+            return False
 
     def add_mapping(self, rfid_tag: str, file_path: Union[str, Path]) -> bool:
         """

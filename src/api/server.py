@@ -29,6 +29,7 @@ def validate_json_input(**expected_fields):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            logger.info(request.json)
             data = request.json
             if not data:
                 raise ValueError("No JSON data provided")
@@ -140,7 +141,7 @@ class APIServer:
         @validate_json_input(
             position_ms={
                 'required': True,
-                'type': int,
+                'type': float,
                 'min': 0,
                 'max': 24 * 60 * 60 * 1000  # 24 hours in milliseconds
             }

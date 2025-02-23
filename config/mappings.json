@@ -6,9 +6,10 @@
         "artist": "PAS DANS LE CUL AUJOURD'HUI",
         "album": "Free Music Archive",
         "filename": "song1.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": "MOCK_TAG_1"
       },
-      "last_position": 8769
+      "last_position": 0
     },
     "song2.mp3": {
       "metadata": {
@@ -16,7 +17,8 @@
         "artist": "TRG Banks",
         "album": "Free Music Archive",
         "filename": "song2.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": "MOCK_TAG_2"
       },
       "last_position": 0
     },
@@ -26,7 +28,8 @@
         "artist": "Monplaisir",
         "album": "Free Music Archive",
         "filename": "song3.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": "MOCK_TAG_3"
       },
       "last_position": 4329
     },
@@ -36,7 +39,8 @@
         "artist": "Komiku",
         "album": "Free Music Archive",
         "filename": "song4.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": "MOCK_TAG_4"
       },
       "last_position": 0
     },
@@ -46,7 +50,8 @@
         "artist": "Monplaisir",
         "album": "Free Music Archive",
         "filename": "song3 copy.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": null
       },
       "last_position": 0
     },
@@ -56,7 +61,8 @@
         "artist": "Komiku",
         "album": "Free Music Archive",
         "filename": "song4 copy.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": null
       },
       "last_position": 0
     },
@@ -66,7 +72,8 @@
         "artist": "Komiku",
         "album": "Free Music Archive",
         "filename": "Chillin-Poupi_fma-169768_001_00-00-27.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": "44301EE6"
       },
       "last_position": 0
     },
@@ -76,15 +83,17 @@
         "artist": "Baby Yoda",
         "album": "Chicky Nuggies",
         "filename": "Baby Yoda - Chicky Nuggies.mp3",
-        "last_position": 0
+        "last_position": 0,
+        "mapped_to": null
       },
-      "last_position": 0
+      "last_position": 6393
     }
   },
   "mappings": {
     "MOCK_TAG_1": "song1.mp3",
     "MOCK_TAG_2": "song2.mp3",
     "MOCK_TAG_3": "song3.mp3",
-    "MOCK_TAG_4": "song4.mp3"
+    "MOCK_TAG_4": "song4.mp3",
+    "TAG_44301EE6": "Chillin-Poupi_fma-169768_001_00-00-27.mp3"
   }
 }
