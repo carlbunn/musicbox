@@ -65,6 +65,49 @@ adduser bluealsa-aplay audio
 adduser bluealsa bluetooth
 print_status "User setup"
 
+echo "Configuring bluealsa service dependencies..."
+cat > /lib/systemd/system/bluealsa.service << EOL
+[Unit]
+Description=BlueALSA service
+Documentation=man:bluealsad(8)
+Requisite=dbus.service
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=dbus
+BusName=org.bluealsa
+User=root
+Group=audio
+ExecStart=/usr/bin/bluealsad -S -p a2dp-source -p a2dp-sink --all-codecs
+Restart=on-failure
+RestartSec=10
+
+ReadWritePaths=/var/lib/bluealsa
+StateDirectory=bluealsa
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+cat > /lib/systemd/system/bluealsa-aplay.service << EOL
+[Unit]
+Description=BlueALSA aplay service
+Documentation=man:bluealsa-aplay(1)
+After=bluealsa.service
+Requires=bluealsa.service
+
+[Service]
+Restart=on-failure
+RestartSec=10
+Type=simple
+User=root
+ExecStart=/usr/bin/bluealsa-aplay -S
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
 echo "Setting up audio output..."
 cat > /etc/asound.conf << EOL
 pcm.bluetooth {

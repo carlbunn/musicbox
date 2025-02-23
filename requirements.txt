@@ -1,8 +1,19 @@
-python-vlc==3.0.21203
-mfrc522==0.0.7
-RPi.GPIO==0.7.1; platform_machine=='armv7l' or platform_machine=='aarch64'  # Only install on Raspberry Pi
-pathlib==1.0.1
-typing==3.7.4.3
-flask>=2.3.0
-requests>=2.25.1
-spotdl
+# Core dependencies
+flask>=2.3.0,<3.0.0
+requests>=2.25.1,<3.0.0
+python-dotenv>=0.19.0,<1.0.0
+mutagen>=1.46.0,<2.0.0
+
+# Audio Playback
+#pygame>=2.5.0,<3.0.0
+python-vlc>=3.0.21203,<4.0.0
+
+# Raspberry Pi Dependencies
+mfrc522==0.0.7; platform_machine=='armv7l' or platform_machine=='aarch64'
+rpi-lgpio==0.7.1; platform_machine=='armv7l' or platform_machine=='aarch64'
+
+# Spotify integration
+spotdl>=4.1.0,<5.0.0
+
+#pathlib==1.0.1
+#typing==3.7.4.3

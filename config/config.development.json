@@ -1,0 +1,27 @@
+{
+    "music_directory": "music",
+    "mapping_file": "config/mappings.json",
+    "volume": 50,
+    "main_loop_interval": 0.1,
+    "spotify": {
+        "enabled": true,
+        "max_concurrent_downloads": 3,
+        "auto_map_downloads": true
+    },
+    "rfid": {
+        "slow_polling": 2.0,
+        "fast_polling": 0.1,
+        "transition_polling": 5.0
+    },
+    "api": {
+        "port": 8000,
+        "host": "0.0.0.0",
+        "debug": false
+    },
+    "audio_player": {
+        "player_args": [],
+        "prod_player_args": ["--aout=alsa", "--alsa-audio-device=bluetooth"],
+        "near_end_threshold": 5.0,
+        "playback_init_delay": 0.1
+    }
+}

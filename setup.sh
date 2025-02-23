@@ -169,8 +169,13 @@ apt-get install -y \
     python3-pip \
     python3-venv \
     expect \
-    ffmpeg
+    ffmpeg \
+    libsdl2-mixer-2.0-0
 print_status "System packages"
+
+# Change CPU scaling to performance
+#echo "performance" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+#print_status "CPU Scaling"
 
 # Handle existing installation
 if [ -d "$INSTALL_DIR" ]; then

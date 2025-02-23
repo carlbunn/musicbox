@@ -1,229 +1,189 @@
 from pathlib import Path
-import os
 import json
 import vlc
-from typing import Dict, Optional, List
+import threading
+from typing import Dict, Optional, List, Union
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+AUDIO_EXTENSIONS = {'.mp3', '.wav', '.flac', '.ogg'}
+
 class MappingManager:
-    """
-    Manages mappings between RFID tags and music files.
-    Handles persistence and validation of mappings.
-    """
-    def __init__(self, mapping_file: str = "config/mappings.json", music_dir: str = "music"):
-        # Convert paths to absolute using Path
-        if not Path(mapping_file).is_absolute():
-            self.mapping_file = Path(__file__).parent.parent.parent / mapping_file
-        else:
-            self.mapping_file = Path(mapping_file)
-            
-        if not Path(music_dir).is_absolute():
-            self.music_dir = Path(__file__).parent.parent.parent / music_dir
-        else:
-            self.music_dir = Path(music_dir)
-            
-        logger.info(f"Initialising MappingManager with music directory: {self.music_dir}")
-        self.mappings: Dict[str, str] = {}
+    def __init__(self,
+                 mapping_file: Union[str, Path] = "config/mappings.json",
+                 music_dir: Union[str, Path] = "music",
+                 save_timer: int = 30.0):
+        """
+        Initialize the MappingManager with absolute paths for mapping file and music directory.
         
-        # Ensure music directory exists
-        self.music_dir.mkdir(parents=True, exist_ok=True)
-        self._load_mappings()
-        self._scan_music_directory()
-
-    def _load_mappings(self) -> None:
-        """Load mappings from file, create if doesn't exist."""
+        Args:
+            mapping_file: Path to the mapping database file
+            music_dir: Path to the root music directory
+        """
+        self._save_database_timer = None
         try:
-            logger.info(f"Attempting to load mappings from: {self.mapping_file}")
-            
-            if self.mapping_file.exists():
-                logger.info("Mappings file exists, loading content...")
-                with open(self.mapping_file, 'r') as f:
-                    data = json.load(f)
-                    self.mappings = data.get('rfid_mappings', {})
-                    self.files = data.get('files', {})
-                logger.info(f"Loaded {len(self.mappings)} mappings and {len(self.files)} file records")
-            else:
-                logger.info("Mappings file does not exist, creating new one")
-                self.mappings = {}
-                self.files = {}
-                self._save_mappings()
-                logger.info("Created new mappings file")
-                
+            # Convert paths to absolute
+            self.mapping_file = Path(mapping_file).resolve()
+            self.music_dir = Path(music_dir).resolve()
+
+            if not self.music_dir.is_dir():
+                logger.info(f"Music directory does not exist, will create a new directory: {self.music_dir}")
+                self.music_dir.mkdir(parents=True, exist_ok=True)
+
+            if not self.mapping_file.exists():
+                logger.info(f"Mapping file doesn't exist, will create a new file: {self.mapping_file}")
+                self.mapping_file.parent.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Initialising MappingManager with music directory: {self.music_dir}")
+            logger.info(f"Initialising MappingManager with mapping file: {self.mapping_file}")
+
+            # Initialize storage
+            self.files: Dict[str, Dict] = {}        # relative_path -> file metadata
+            self.mappings: Dict[str, str] = {}      # rfid_tag -> relative_path
+
+            # Set the save database timer
+            self._save_timer_interval = save_timer
+            self._database_changed = False
+
+            # Load existing data
+            self._load_database()
+            self.scan_directory()
+
+        except Exception:
+            self.cleanup()  # Ensure cleanup happens if initialization fails
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+
+    def _mark_database_changed(self) -> None:
+        """Mark database as changed and ensure timer is running."""
+        self._database_changed = True
+
+        # Ensure timer is running if not already
+        if (not self._save_database_timer or not self._save_database_timer.is_alive()):
+            self._save_database_timer = threading.Timer(self._save_timer_interval, self._save_database_to_disk)
+            self._save_database_timer.start()
+
+    def to_absolute_path(self, relative_path: Union[str, Path]) -> Path:
+        """Convert a relative path to an absolute path within music_dir."""
+        return (self.music_dir / Path(relative_path)).resolve()
+
+    def to_relative_path(self, path: Union[str, Path]) -> str:
+        """
+        Convert any path (absolute or relative) to a path relative to music_dir.
+        Raises ValueError if path is outside music_dir.
+        """
+        try:
+            path = Path(path)
+            if not path.is_absolute():
+                path = (self.music_dir / path).resolve()
+
+            rel_path = path.relative_to(self.music_dir)
+            return str(rel_path)
+        except ValueError:
+            raise ValueError(f"Path {path} is not within music directory {self.music_dir}")
+
+    def _load_database(self) -> None:
+        """Load the mapping database from disk."""
+        if not self.mapping_file.exists():
+            logger.info(f"Creating new empty database at {self.mapping_file}")
+            self._save_database_to_disk(force_save=True)
+            return
+
+        try:
+            with open(self.mapping_file, 'r') as f:
+                data = json.load(f)
+                self.files = data.get('files', {})
+                self.mappings = data.get('mappings', {})
+
+            logger.info(f"Loaded {len(self.mappings)} mappings and {len(self.files)} files")
+            self._database_changed = False
+
         except Exception as e:
-            logger.error(f"Error loading mappings: {str(e)}")
-            self.mappings = {}
+            logger.error(f"Error loading database: {e}")
             self.files = {}
+            self.mappings = {}
+            self._save_database_to_disk(force_save=True)
 
-    def _save_mappings(self) -> None:
-        """Save current mappings to file using atomic write."""
+    def save_database(self) -> bool:
+        """Save the mapping database."""
+        return self._save_database_to_disk()
+
+    def _save_database_to_disk(self, force_save: bool = False) -> bool:
+        """Save the mapping database to disk.
+        
+        Args:
+            set_timer: Whether to reset the auto-save timer
+            force_save: Whether to save even if no changes detected
+        """
         try:
-            # Create temp file in same directory
+            # Cancel any existing timers
+            if (self._save_database_timer and self._save_database_timer.is_alive()):
+                self._save_database_timer.cancel()
+
+            if not self._database_changed and not force_save:
+                return True
+
+            # Write to temporary file first
             temp_file = self.mapping_file.with_suffix('.tmp')
             data = {
-                'rfid_mappings': self.mappings,
-                'files': self.files
+                'files': self.files,
+                'mappings': self.mappings
             }
-            
-            # Write to temp file first
+
             with open(temp_file, 'w') as f:
                 json.dump(data, f, indent=2)
-                f.flush()  # Ensure all data is written
-                os.fsync(f.fileno())  # Force write to disk
-                
-            # Atomic replace
-            os.replace(temp_file, self.mapping_file)
-            logger.info("Mappings saved successfully")
-            
-        except Exception as e:
-            logger.error(f"Error saving mappings: {str(e)}")
-            if temp_file.exists():
-                temp_file.unlink()  # Clean up temp file
 
-    def _extract_metadata(self, file_path: Path) -> Dict:
-        """Extract metadata from audio file."""
+            # Atomic replace
+            temp_file.replace(self.mapping_file)
+            logger.info("Database saved successfully")
+            self._database_changed = False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving database: {e}")
+            return False
+
+    def _extract_metadata(self, file_path: Union[str, Path]) -> Dict:
+        """Extract metadata from an audio file."""
+        media = None
+
         try:
             media = vlc.Media(str(file_path))
             media.parse()
             
             metadata = {
-                'title': media.get_meta(vlc.Meta.Title),
-                'artist': media.get_meta(vlc.Meta.Artist),
-                'album': media.get_meta(vlc.Meta.Album),
+                'title': media.get_meta(vlc.Meta.Title) or file_path.stem,
+                'artist': media.get_meta(vlc.Meta.Artist) or 'Unknown Artist',
+                'album': media.get_meta(vlc.Meta.Album) or 'Unknown Album',
                 'filename': file_path.name,
-                'last_position': 0,  # Initialise position tracking
+                'size': file_path.stat().st_size,
+                'modified': file_path.stat().st_mtime,
+                'last_position': 0
             }
-            
-            # Use filename as title if no metadata found
-            if not metadata['title']:
-                metadata['title'] = file_path.stem
-                
             return metadata
-            
+
         except Exception as e:
-            logger.error(f"Error extracting metadata from {file_path}: {str(e)}")
+            logger.error(f"Error extracting metadata from {file_path}: {e}")
             return {
                 'title': file_path.stem,
+                'artist': 'Unknown Artist',
+                'album': 'Unknown Album',
                 'filename': file_path.name,
+                'size': 0,
+                'modified': 0,
                 'last_position': 0
             }
 
-    def _scan_music_directory(self) -> None:
-        """Scan music directory and update file records."""
-        try:
-            # Get all music files
-            music_files = []
-            for ext in ['.mp3', '.wav', '.flac', '.ogg']:
-                music_files.extend([f for f in self.music_dir.glob(f"*{ext}") 
-                    if not f.name.startswith('.')])
-
-            # Convert to relative paths for storage
-            current_files = {str(f.relative_to(self.music_dir)): f for f in music_files}
-            
-            # Remove entries for files that no longer exist
-            self.files = {path: data for path, data in self.files.items() 
-                    if path in current_files}
-
-            # Add or update entries for current files
-            for rel_path, abs_path in current_files.items():
-                if rel_path not in self.files:
-                    metadata = self._extract_metadata(abs_path)
-                    self.files[rel_path] = {
-                        'metadata': metadata,
-                        'last_position': 0,
-                        'last_played': None
-                    }
-            
-            # Clean up mappings for missing files
-            self.mappings = {tag: mapping for tag, mapping in self.mappings.items()
-                           if mapping['path'] in self.files}
-            
-            self._save_mappings()
-            logger.info(f"Music directory scan complete. Found {len(current_files)} files")
-            
-        except Exception as e:
-            logger.error(f"Error scanning music directory: {str(e)}")
-
-    def remove_tag_mapping(self, rfid_tag: str) -> bool:
-        """Remove mapping for a specific RFID tag."""
-        try:
-            if rfid_tag in self.mappings:
-                del self.mappings[rfid_tag]
-                self._save_mappings()
-                logger.info(f"Removed mapping for tag: {rfid_tag}")
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error removing mapping: {str(e)}")
-            return False
-
-    def add_mapping(self, rfid_tag: str, music_file: str) -> bool:
-        """Add or update an RFID mapping."""
-        try:
-            # Convert to Path object
-            music_path = Path(music_file)
-            
-            # If it's not absolute, assume it's relative to music_dir
-            if not music_path.is_absolute():
-                music_path = self.music_dir / music_path
-
-            # Verify file exists
-            if not music_path.exists():
-                logger.error(f"Music file not found: {music_path}")
-                return False
-
-            # Get relative path
-            relative_path = str(music_path.relative_to(self.music_dir))
-            
-            # Ensure file is in our files dict
-            if relative_path not in self.files:
-                self._scan_music_directory()
-            
-            self.mappings[rfid_tag] = {
-                'path': relative_path
-            }
-            
-            self._save_mappings()
-            logger.info(f"Added mapping: {rfid_tag} -> {relative_path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error adding mapping: {str(e)}")
-            return False
-
-    def get_music_file(self, rfid_tag: str) -> Optional[Dict]:
-        """Get file info for an RFID-mapped file."""
-        try:
-            if rfid_tag in self.mappings:
-                mapping = self.mappings[rfid_tag]
-                return self.get_file_info(mapping['path'])
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting music file: {str(e)}")
-            return None
-
-    def get_unmapped_files(self) -> List[Path]:
-        """Get list of music files that aren't mapped to any RFID tag."""
-        try:
-            # Get all music files
-            all_files = set()
-            for ext in ['.mp3', '.wav', '.flac', '.ogg']:
-                all_files.update(self.music_dir.glob(f"*{ext}"))
-            
-            # Convert mapped files to absolute paths for comparison
-            mapped_files = {(self.music_dir / Path(path)).resolve() 
-                          for path in self.mappings.values()}
-            
-            # Return unmapped files (relative to music_dir)
-            unmapped = sorted(list(all_files - mapped_files))
-            logger.info(f"Found {len(unmapped)} unmapped files")
-            return unmapped
-
-        except Exception as e:
-            logger.error(f"Error getting unmapped files: {str(e)}")
-            return []
+        finally:
+            if media:
+                media.release()
 
     def validate_mappings(self) -> Dict[str, List[str]]:
         """
@@ -237,58 +197,171 @@ class MappingManager:
 
         try:
             # Check for missing files
-            for tag, file_path in self.mappings.items():
-                full_path = self.music_dir / file_path
-                if not full_path.exists():
-                    issues['missing_files'].append(f"{tag}: {file_path}")
+            for tag, rel_path in self.mappings.items():
+                abs_path = self.to_absolute_path(rel_path)
+                if not abs_path.exists():
+                    issues['missing_files'].append(f"{tag}: {rel_path}")
 
-            # Check for duplicate files
-            file_counts = {}
-            for file_path in self.mappings.values():
-                file_counts[file_path] = file_counts.get(file_path, 0) + 1
+            # Check for duplicate mappings to the same file
+            path_counts = {}
+            for rel_path in self.mappings.values():
+                path_counts[rel_path] = path_counts.get(rel_path, 0) + 1
                 
-            for file_path, count in file_counts.items():
+            for rel_path, count in path_counts.items():
                 if count > 1:
-                    issues['duplicate_files'].append(file_path)
+                    issues['duplicate_files'].append(rel_path)
 
             if any(issues.values()):
                 logger.warning(f"Found mapping issues: {issues}")
 
-        except Exception as e:
-            logger.error(f"Error validating mappings: {str(e)}")
+            return issues
 
-        return issues
-    
-    def update_position(self, file_path: str, position_ms: int) -> None:
-        """Update the last played position for a file."""
+        except Exception as e:
+            logger.error(f"Error validating mappings: {e}")
+            return issues
+
+    def scan_directory(self) -> None:
+        """Scan music directory and update file database."""
         try:
-            # Find the mapping entry for this file
-            file_path = Path(file_path).resolve()
-            relative_path = str(Path(file_path).relative_to(self.music_dir))
+            # Find all music files
+            current_files = []
+            
+            for file_path in self.music_dir.rglob('*'):
+                if file_path.suffix.lower() in AUDIO_EXTENSIONS and not file_path.name.startswith('.'):
+                    current_files.append(file_path)
 
-            if relative_path in self.files:
-                self.files[relative_path]['last_position'] = position_ms
-                self._save_mappings()
+            # Convert to relative paths
+            current_files = {str(f.relative_to(self.music_dir)): f for f in current_files}
+
+            # Remove entries for files that no longer exist
+            self.files = {path: data for path, data in self.files.items() 
+                         if path in current_files}
+
+            # Add new files
+            for rel_path, abs_path in current_files.items():
+                if rel_path not in self.files:
+                    self.files[rel_path] = {
+                        'metadata': self._extract_metadata(abs_path),
+                        'last_position': 0
+                    }
+
+            # Clean up mappings for missing files
+            self.mappings = {tag: path for tag, path in self.mappings.items()
+                           if path in self.files}
+
+            self._mark_database_changed()
+            logger.info(f"Scan complete. Found {len(current_files)} files")
 
         except Exception as e:
-            logger.error(f"Error updating position: {str(e)}")
-    
-    def get_file_info(self, file_path: str) -> Optional[Dict]:
-        """Get file info for any file, mapped or not."""
+            logger.error(f"Error scanning directory: {e}")
+
+    def add_mapping(self, rfid_tag: str, file_path: Union[str, Path]) -> bool:
+        """
+        Add or update mapping. file_path can be absolute or relative.
+        Returns True if mapping was successful.
+        """
         try:
-            file_path = Path(file_path)
-            if not file_path.is_absolute():
-                file_path = self.music_dir / file_path
+            # Convert to Path and resolve
+            rel_path = self.to_relative_path(file_path)
             
-            relative_path = str(file_path.relative_to(self.music_dir))
-            
-            if relative_path in self.files:
-                return {
-                    'path': file_path,
-                    **self.files[relative_path]
-                }
-            return None
-            
+            # If file not in database, rescan directory
+            if rel_path not in self.files:
+                self.scan_directory()
+
+            # Check again after potential rescan
+            if rel_path in self.files:
+                self.mappings[rfid_tag] = rel_path
+                self._mark_database_changed()
+                return True
+            return False
+
         except Exception as e:
-            logger.error(f"Error getting file info: {str(e)}")
+            logger.error(f"Error adding mapping: {e}")
+            return False
+
+    def remove_mapping(self, rfid_tag: str) -> bool:
+        """Remove RFID mapping."""
+        try:
+            if rfid_tag in self.mappings:
+                del self.mappings[rfid_tag]
+                self._mark_database_changed()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing mapping: {e}")
+            return False
+
+    def get_mapped_file(self, rfid_tag: str) -> Optional[Path]:
+        """Get absolute path for RFID-mapped file."""
+        try:
+            if rfid_tag in self.mappings:
+                rel_path = self.mappings[rfid_tag]
+                return self.to_absolute_path(rel_path)
             return None
+        except Exception as e:
+            logger.error(f"Error getting mapped file: {e}")
+            return None
+
+    def update_position(self, file_path: Union[str, Path], position_ms: int) -> None:
+        """Update last played position for a file."""
+        try:
+            # Convert absolute path to relative
+            rel_path = self.to_relative_path(file_path)
+
+            if rel_path in self.files:
+                self.files[rel_path]['last_position'] = position_ms
+                self._mark_database_changed()
+        except Exception as e:
+            logger.error(f"Error updating position: {e}")
+
+    def get_metadata(self, file_path: Union[str, Path]) -> Optional[Dict]:
+        """Get metadata for a file."""
+        try:
+            rel_path = self.to_relative_path(file_path)
+            file_info = self.files.get(rel_path)
+            return file_info.get('metadata') if file_info else None
+        except Exception as e:
+            logger.error(f"Error getting metadata: {e}")
+            return None
+
+    def get_unmapped_files(self) -> List[Path]:
+        """Get list of music files that aren't mapped to any RFID tag."""
+        try:
+            # Get set of all currently mapped relative paths
+            mapped_paths = set(self.mappings.values())
+
+            # Get all files that are in our database but not mapped
+            unmapped = [self.to_absolute_path(rel_path) 
+                    for rel_path in self.files.keys() 
+                    if rel_path not in mapped_paths]
+
+            logger.info(f"Found {len(unmapped)} unmapped files")
+            return sorted(unmapped)
+
+        except Exception as e:
+            logger.error(f"Error getting unmapped files: {e}")
+            return []
+
+    def cleanup(self) -> None:
+        """Clean up resources"""
+        logger.info("Starting mapping manager cleanup...")
+
+        try:
+            # Cancel any pending save timer
+            if self._save_database_timer and self._save_database_timer.is_alive():
+                logger.info("Cancelling pending save timer")
+                self._save_database_timer.cancel()
+                self._save_database_timer = None
+
+            # Force final save to disk
+            logger.info("Performing final database save")
+            save_success = self._save_database_to_disk(force_save=True)
+            if not save_success:
+                logger.error("Failed to save database during cleanup")
+
+        except Exception as e:
+            logger.error(f"Error during mapping manager cleanup: {e}")
+            raise  # Re-raise to ensure calling code knows cleanup failed
+
+        finally:
+            logger.info("Mapping manager cleanup complete")

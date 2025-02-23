@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Generator, List
+from typing import Generator #, List
 import os
 from src.utils.logger import get_logger
 
@@ -22,7 +22,7 @@ class FileManager:
         AUDIO_EXTENSIONS = {'.mp3', '.wav', '.flac', '.ogg'}
         try:
             for file_path in self.base_path.rglob('*'):
-                if file_path.suffix.lower() in AUDIO_EXTENSIONS:
+                if file_path.suffix.lower() in AUDIO_EXTENSIONS and not file_path.name.startswith('.'):
                     yield file_path
         except Exception as e:
             logger.error(f"Error scanning audio files: {str(e)}")
