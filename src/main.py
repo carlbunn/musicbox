@@ -1,8 +1,16 @@
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the project root directory to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
+# Load the env variables (if available)
+load_dotenv(os.path.join(project_root, '.env'))
+
+# Change to the project root directory
+os.chdir(project_root)
 
 from src.core.audio_player import AudioPlayer
 from src.core.mapping_manager import MappingManager
@@ -13,9 +21,6 @@ import time
 import signal
 import threading
 from queue import Queue, Empty
-
-# Change to the project root directory
-os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = get_logger(__name__)
 logger.info("Main module loading...")
@@ -32,13 +37,14 @@ class MusicBox:
         self.audio_player = AudioPlayer(mapping_manager     = self.mapping_manager,
                                         near_end_threshold  = self.settings.get('audio_player', {}).get('near_end_threshold', 0),
                                         playback_init_delay = self.settings.get('audio_player', {}).get('playback_init_delay', 0),
+                                        player_volume       = self.settings.get('audio_player', {}).get('volume', 50),
                                         player_args         = self.settings.get('audio_player', {}).get('player_args', 0))
 
         # Use RC522Reader on Pi, MockRFIDReader for development
         if self._is_running_on_pi():
             logger.info("Running an rfc522 rfid reader...")
             from src.core.rc522_reader import RC522Reader
-            self.rfid_reader = RC522Reader()
+            self.rfid_reader = RC522Reader(removal_timeout  = self.settings.get('rfid', {}).get('removal_timeout', 0))
         else:
             logger.info("Running a mock rfid reader...")
             from src.core.mock_rfid_reader import MockRFIDReader
@@ -238,7 +244,6 @@ class MusicBox:
                     except Empty:
                         pass
 
-                    
                     if self.audio_player.has_ended and not track_end_logged:
                         info = self.audio_player.get_status().get('metadata', {})
                         logger.info(f"Track finished playing: {info.get('title', '')} by {info.get('artist', '')}")

@@ -50,7 +50,7 @@ class Settings:
         with self._lock:
             try:
                 # Determine config path based on environment
-                env = os.getenv('MUSICBOX_ENV', 'development')
+                env = os.getenv('MUSICBOX_ENV', 'production')
                 if not config_path:
                     base_path = Path.cwd()
                     config_path = str(base_path / f"config/config.{env}.json")
@@ -58,8 +58,8 @@ class Settings:
                 config_path = Path(config_path)
                 if not Path(config_path).is_absolute():
                     config_path = Path.cwd() / config_path
-                    
-                logger.debug(f"Loading settings from: {config_path}")
+
+                logger.info(f"Loading settings from: {config_path}")
 
                 # Load base configuration
                 if not config_path.exists():

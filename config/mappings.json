@@ -1,82 +1,5 @@
 {
   "files": {
-    "song1.mp3": {
-      "metadata": {
-        "title": "2670 001 (03:37)",
-        "artist": "PAS DANS LE CUL AUJOURD'HUI",
-        "album": "Free Music Archive",
-        "filename": "song1.mp3",
-        "last_position": 0,
-        "mapped_to": "MOCK_TAG_1"
-      },
-      "last_position": 0
-    },
-    "song2.mp3": {
-      "metadata": {
-        "title": "A Christmas adventure (Part 2) 001 (00:08)",
-        "artist": "TRG Banks",
-        "album": "Free Music Archive",
-        "filename": "song2.mp3",
-        "last_position": 0,
-        "mapped_to": "MOCK_TAG_2"
-      },
-      "last_position": 0
-    },
-    "song3.mp3": {
-      "metadata": {
-        "title": "Aimer les fourmis 002 (02:08)",
-        "artist": "Monplaisir",
-        "album": "Free Music Archive",
-        "filename": "song3.mp3",
-        "last_position": 0,
-        "mapped_to": "MOCK_TAG_3"
-      },
-      "last_position": 4329
-    },
-    "song4.mp3": {
-      "metadata": {
-        "title": "Bad Guys HQ 001 (01:10)",
-        "artist": "Komiku",
-        "album": "Free Music Archive",
-        "filename": "song4.mp3",
-        "last_position": 0,
-        "mapped_to": "MOCK_TAG_4"
-      },
-      "last_position": 0
-    },
-    "song3 copy.mp3": {
-      "metadata": {
-        "title": "Aimer les fourmis 002 (02:08)",
-        "artist": "Monplaisir",
-        "album": "Free Music Archive",
-        "filename": "song3 copy.mp3",
-        "last_position": 0,
-        "mapped_to": null
-      },
-      "last_position": 0
-    },
-    "song4 copy.mp3": {
-      "metadata": {
-        "title": "Bad Guys HQ 001 (01:10)",
-        "artist": "Komiku",
-        "album": "Free Music Archive",
-        "filename": "song4 copy.mp3",
-        "last_position": 0,
-        "mapped_to": null
-      },
-      "last_position": 0
-    },
-    "Chillin-Poupi_fma-169768_001_00-00-27.mp3": {
-      "metadata": {
-        "title": "Chillin' Poupi 001 (00:27)",
-        "artist": "Komiku",
-        "album": "Free Music Archive",
-        "filename": "Chillin-Poupi_fma-169768_001_00-00-27.mp3",
-        "last_position": 0,
-        "mapped_to": "44301EE6"
-      },
-      "last_position": 0
-    },
     "Baby Yoda - Chicky Nuggies.mp3": {
       "metadata": {
         "title": "Chicky Nuggies",
@@ -86,14 +9,62 @@
         "last_position": 0,
         "mapped_to": null
       },
-      "last_position": 6393
+      "last_position": 0
+    },
+    "Baby Yoda - Chicky Nuggies Pizza.mp3": {
+      "metadata": {
+        "title": "Chicky Nuggies Pizza",
+        "artist": "Baby Yoda",
+        "album": "Chicky Nuggie Land",
+        "filename": "Baby Yoda - Chicky Nuggies Pizza.mp3",
+        "size": 1677554,
+        "modified": 1739181352.717959,
+        "last_position": 0,
+        "mapped_to": "44301EE6"
+      },
+      "last_position": 5332
+    },
+    "Laurie Main - Winnie the Pooh and the Honey Tree.mp3": {
+      "metadata": {
+        "title": "Winnie the Pooh and the Honey Tree",
+        "artist": "Laurie Main",
+        "album": "Songs and Story: Winnie the Pooh and the Honey Tree",
+        "filename": "Laurie Main - Winnie the Pooh and the Honey Tree.mp3",
+        "size": 9866393,
+        "modified": 1739181352.767959,
+        "last_position": 0,
+        "mapped_to": null
+      },
+      "last_position": 48725
+    },
+    "All-Through-the-Night.mp3": {
+      "metadata": {
+        "title": "All-Through-the-Night.mp3",
+        "artist": "Unknown Artist",
+        "album": "Unknown Album",
+        "filename": "All-Through-the-Night.mp3",
+        "size": 12809321,
+        "modified": 1739181352.6379588,
+        "last_position": 0,
+        "mapped_to": null
+      },
+      "last_position": 4281
+    },
+    "little-robin-red-vest.mp3": {
+      "metadata": {
+        "title": "Just Right for Christmas",
+        "artist": "Tom Bonnick",
+        "album": "Tom Bonnick's Album",
+        "filename": "little-robin-red-vest.mp3",
+        "size": 17934546,
+        "modified": 1739181352.707959,
+        "last_position": 0,
+        "mapped_to": null
+      },
+      "last_position": 3002
     }
   },
   "mappings": {
-    "MOCK_TAG_1": "song1.mp3",
-    "MOCK_TAG_2": "song2.mp3",
-    "MOCK_TAG_3": "song3.mp3",
-    "MOCK_TAG_4": "song4.mp3",
-    "TAG_44301EE6": "Chillin-Poupi_fma-169768_001_00-00-27.mp3"
+    "TAG_44301EE6": "Baby Yoda - Chicky Nuggies Pizza.mp3"
   }
 }

@@ -10,7 +10,7 @@ python-vlc>=3.0.21203,<4.0.0
 
 # Raspberry Pi Dependencies
 mfrc522==0.0.7; platform_machine=='armv7l' or platform_machine=='aarch64'
-rpi-lgpio==0.7.1; platform_machine=='armv7l' or platform_machine=='aarch64'
+rpi-lgpio>=0.6; platform_machine=='armv7l' or platform_machine=='aarch64'
 
 # Spotify integration
 spotdl>=4.1.0,<5.0.0

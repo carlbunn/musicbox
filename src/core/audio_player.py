@@ -16,6 +16,7 @@ class AudioPlayer:
                  mapping_manager: MappingManager,
                  near_end_threshold: float = 3.0,
                  playback_init_delay: float = 0.1,
+                 player_volume: int = 50,
                  player_args: list = None):
         self._current_instance: Optional[vlc.Instance] = None
         self._current_player: Optional[vlc.MediaPlayer] = None
@@ -24,11 +25,12 @@ class AudioPlayer:
         self._near_end_threshold = near_end_threshold
         self._playback_init_delay = playback_init_delay
         self._is_playing = False
+        self._current_volume = player_volume
         self._metadata: Dict = {}
         self._current_file: Optional[str] = None
         self._mapping_manager = mapping_manager
 
-        logger.info("AudioPlayer initialized")
+        logger.info("AudioPlayer initialised")
     
     def _create_new_player(self, file_path: str) -> None:
         """Create and store VLC player with appropriate configuration."""
@@ -42,6 +44,7 @@ class AudioPlayer:
         self._current_player = self._current_instance.media_player_new()
         self._current_media = self._current_instance.media_new(str(file_path))
         self._current_player.set_media(self._current_media)
+        self._current_player.audio_set_volume(self._current_volume)
 
         self._current_file = file_path
 
@@ -108,7 +111,7 @@ class AudioPlayer:
 
                 # Start playback
                 self._current_player.play()
-                time.sleep(self._playback_init_delay)  # Brief wait for media to initialize
+                time.sleep(self._playback_init_delay)  # Brief wait for media to initialise
 
                 # Seek in new player
                 self._current_player.set_time(position_ms)
@@ -119,7 +122,6 @@ class AudioPlayer:
                     self._current_player.pause()
 
                 logger.info("Player rebuilt successfully after seek error")
-                return True
 
             return True
 
@@ -135,10 +137,11 @@ class AudioPlayer:
 
             current_pos = self._current_player.get_time()
             return self.seek_to_position(current_pos + offset_ms)
-            
+
         except Exception as e:
             logger.error(f"Error in relative seek: {str(e)}")
-            return False
+
+        return False
 
     def skip_forward(self, ms: int = 15000) -> bool:
         """Skip forward by specified milliseconds (default 15s)."""
@@ -175,49 +178,63 @@ class AudioPlayer:
 
             logger.info(f"Playing: {file_path}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error playing file {file_path}: {str(e)}")
-            return False
+
+        return False
 
     def stop(self) -> None:
         """Stop playback and save position."""
         try:
             self._save_current_position()
-            
+
             if self._current_player:
                 self._current_player.stop()
                 self._is_playing = False
                 self._current_file = None
                 logger.info("Playback stopped")
+                return True
+
         except Exception as e:
             logger.error(f"Error stopping playback: {str(e)}")
+        
+        return False
 
-    def pause(self) -> None:
+    def pause(self) -> bool:
         """Pause current playback and save position."""
         try:
             self._save_current_position()
-            
+
             if self._current_player:
                 self._current_player.pause()
                 self._is_playing = False
                 logger.info("Playback paused")
+
+            return True
+
         except Exception as e:
             logger.error(f"Error pausing playback: {str(e)}")
 
-    def resume(self) -> None:
-        """Resume paused playback."""
-        if self._current_player:
-            self._current_player.play()
-            self._is_playing = True
-            logger.info("Playback resumed")
+        return False
 
+    def resume(self) -> bool:
+        """Resume paused playback."""
+        if not self._current_player:
+            return False
+        
+        self._current_player.play()
+        self._is_playing = True
+        logger.info("Playback resumed")
+        return True
+    
     @property
     def is_playing(self) -> bool:
         """Check if audio is currently playing."""
         if self._current_player:
             state = self._current_player.get_state()
             self._is_playing = state == vlc.State.Playing
+
         return self._is_playing
 
     @property
@@ -228,6 +245,7 @@ class AudioPlayer:
             position = self._current_player.get_time()
             duration = self._current_player.get_length()
             return duration > 0 and (duration - position) <= (self._near_end_threshold * 1000)
+
         return False
 
     def get_status(self) -> Dict:
@@ -287,6 +305,7 @@ class AudioPlayer:
     def _cleanup_current_player(self) -> None:
         """Clean up current player and media resources."""
         if self._current_player:
+            self._current_volume = self._current_player.audio_get_volume()
             self._current_player.stop()
             self._current_player.release()
             self._current_player = None

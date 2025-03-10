@@ -20,19 +20,18 @@ def get_logger(
         backup_count: Number of backup files to keep
     """
     logger = logging.getLogger(name)
-    
+
     if not logger.handlers:
         try:
             # Determine log level
             level = (
-                log_level 
+                log_level
                 or os.getenv('MUSICBOX_LOG_LEVEL', 'INFO')
             ).upper()
             logger.setLevel(getattr(logging, level))
-
+            
             # Configure log directory
-            is_prod = os.getenv('MUSICBOX_ENV') == 'production'
-            log_dir = Path("/opt/musicbox/log") if is_prod else Path.cwd() / 'logs'
+            log_dir = Path(os.getenv('MUSICBOX_LOG_DIR', '/opt/musicbox/logs')).resolve()
             log_dir.mkdir(parents=True, exist_ok=True)
 
             formatter = logging.Formatter(
@@ -49,11 +48,16 @@ def get_logger(
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
+            # Check if we also need to log to console
+            log_console = os.getenv('MUSICBOX_LOG_CONSOLE', 'False').lower() in ('true', '1', 'yes', 'y')
+
             # Add console handler only in development
-            if not is_prod:
+            if log_console:
                 console_handler = logging.StreamHandler()
                 console_handler.setFormatter(formatter)
                 logger.addHandler(console_handler)
+
+            logger.info(f"Logger started: level {level}, path {log_dir}")
 
         except Exception as e:
             # Fallback to basic console logging if setup fails
